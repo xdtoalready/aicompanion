@@ -1,19 +1,51 @@
-# Продвинутая система памяти с приоритизацией
+# Продвинутая система памяти с приоритизацией и интеграцией с базой данных
 
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+import logging
 
 class AdvancedMemorySystem:
-    """Продвинутая система памяти с приоритизацией"""
+    """Продвинутая система памяти с приоритизацией и интеграцией с базой данных"""
     
-    def __init__(self):
-        self.memories = []
+    def __init__(self, db_manager=None):
+        self.db_manager = db_manager
+        self.memories = []  # Кэш воспоминаний для быстрого доступа
         self.conversation_patterns = {}
         self.user_preferences = {}
         self.relationship_history = []
+        self.logger = logging.getLogger(__name__)
+        
+        # Загружаем воспоминания из базы данных, если она доступна
+        if self.db_manager:
+            self._load_memories_from_db()
+    
+    def _load_memories_from_db(self):
+        """Загрузка воспоминаний из базы данных"""
+        try:
+            # Получаем все воспоминания из базы данных
+            db_memories = self.db_manager.get_relevant_memories("", 100)  # Пустой запрос для получения всех
+            
+            # Преобразуем в формат для кэша
+            for memory in db_memories:
+                self.memories.append({
+                    "content": memory["content"],
+                    "type": memory["type"],
+                    "importance": memory["importance"],
+                    "emotional_charge": 0.0,  # Значение по умолчанию
+                    "timestamp": datetime.fromisoformat(memory["created_at"]) if isinstance(memory["created_at"], str) else memory["created_at"],
+                    "access_count": 0,
+                    "last_accessed": datetime.fromisoformat(memory["last_accessed"]) if isinstance(memory["last_accessed"], str) else memory["last_accessed"],
+                    "decay_factor": 1.0,
+                    "db_id": memory["id"]  # Сохраняем ID из базы данных
+                })
+            
+            self.logger.info(f"Загружено {len(self.memories)} воспоминаний из базы данных")
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка загрузки воспоминаний из базы данных: {e}")
     
     def add_memory(self, content: str, memory_type: str, importance: int, 
-                   emotional_charge: float = 0.0):
+                   emotional_charge: float = 0.0, source_conversation_id: int = None):
         """Добавляет воспоминание с автоматической категоризацией"""
         
         memory = {
@@ -27,13 +59,34 @@ class AdvancedMemorySystem:
             "decay_factor": 1.0
         }
         
+        # Добавляем в локальный кэш
         self.memories.append(memory)
+        
+        # Сохраняем в базу данных, если она доступна
+        if self.db_manager:
+            try:
+                memory_id = self.db_manager.save_memory(
+                    memory_type=memory_type,
+                    content=content,
+                    importance=importance,
+                    source_conversation_id=source_conversation_id
+                )
+                
+                if memory_id > 0:
+                    memory["db_id"] = memory_id
+                    self.logger.info(f"Воспоминание сохранено в базу данных, ID={memory_id}")
+                else:
+                    self.logger.warning("Не удалось сохранить воспоминание в базу данных")
+                    
+            except Exception as e:
+                self.logger.error(f"Ошибка сохранения воспоминания в базу данных: {e}")
+        
         self._consolidate_memories()
     
     def _consolidate_memories(self):
         """Консолидация памяти - перенос важного в долгосрочную"""
         
-        # Удаляем старые неважные воспоминания
+        # Удаляем старые неважные воспоминания из кэша
         cutoff_time = datetime.now() - timedelta(days=7)
         self.memories = [
             m for m in self.memories 
@@ -48,7 +101,19 @@ class AdvancedMemorySystem:
     def get_relevant_memories(self, context: str, limit: int = 5) -> List[Dict]:
         """Получает релевантные воспоминания с учетом контекста"""
         
-        # Простая релевантность по ключевым словам
+        # Если доступна база данных, используем её для поиска
+        if self.db_manager and context:
+            try:
+                db_memories = self.db_manager.get_relevant_memories(context, limit)
+                
+                # Преобразуем в формат для возврата
+                return db_memories
+                
+            except Exception as e:
+                self.logger.error(f"Ошибка получения воспоминаний из базы данных: {e}")
+                # Продолжаем с локальным поиском
+        
+        # Локальный поиск по ключевым словам
         context_words = set(context.lower().split())
         
         scored_memories = []
@@ -104,6 +169,14 @@ class AdvancedMemorySystem:
             "discovered": datetime.now(),
             "confirmations": 1
         }
+        
+        # Сохраняем как воспоминание
+        self.add_memory(
+            content=f"Пользователь предпочитает: {preference}",
+            memory_type="preference",
+            importance=min(10, int(strength * 10)),
+            emotional_charge=0.0
+        )
     
     def get_user_profile(self) -> Dict[str, Any]:
         """Возвращает профиль пользователя"""
@@ -159,3 +232,37 @@ class AdvancedMemorySystem:
                             key=lambda x: x[1]["frequency"], reverse=True)
         
         return [hour for hour, _ in sorted_hours[:3]]
+    
+    def extract_facts_from_conversation(self, user_message: str, ai_responses: List[str], 
+                                      conversation_id: Optional[int] = None):
+        """Извлекает факты из диалога и сохраняет их как воспоминания"""
+        
+        # Простое извлечение фактов по ключевым словам
+        facts_found = []
+        
+        # Ключевые слова для фактов
+        if any(word in user_message.lower() for word in ["работаю", "работа", "job"]):
+            facts_found.append(("работа пользователя", "fact", 6))
+        
+        if any(word in user_message.lower() for word in ["люблю", "нравится", "обожаю"]):
+            facts_found.append((f"предпочтения: {user_message[:100]}", "preference", 5))
+        
+        if any(word in user_message.lower() for word in ["грустно", "плохо", "устал"]):
+            facts_found.append(("эмоциональное состояние пользователя", "emotion", 4))
+        
+        # Проверяем упоминания манги и аниме
+        if any(word in user_message.lower() for word in ["манга", "аниме", "manga", "anime"]):
+            facts_found.append((f"интересуется мангой/аниме: {user_message[:100]}", "interest", 7))
+        
+        # Сохраняем найденные факты
+        for content, memory_type, importance in facts_found:
+            self.add_memory(
+                content=content,
+                memory_type=memory_type,
+                importance=importance,
+                emotional_charge=0.0,
+                source_conversation_id=conversation_id
+            )
+        
+        return len(facts_found)
+

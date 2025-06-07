@@ -17,13 +17,14 @@ class OptimizedAI:
         self.batch_queue = []
         self.last_state_check = None
         self.cached_responses = {}
+        self.logger = logging.getLogger(__name__)
         
         # Получаем настройки AI из конфига
         self.model = config.get('ai', {}).get('model', 'deepseek/deepseek-chat')
         self.max_tokens = config.get('ai', {}).get('max_tokens', 350)  # Увеличено для многосообщенческих ответов
         self.temperature = config.get('ai', {}).get('temperature', 0.85)  # Оптимизировано по рекомендации DeepSeek
         
-        logging.info(f"AI клиент инициализирован: модель={self.model}, max_tokens={self.max_tokens}")
+        self.logger.info(f"AI клиент инициализирован: модель={self.model}, max_tokens={self.max_tokens}")
     
     async def generate_split_response(self, user_message: str, context: Dict[str, Any]) -> List[str]:
         """Генерация ответа, готового к разделению на сообщения (по алгоритму DeepSeek)"""
@@ -36,11 +37,11 @@ class OptimizedAI:
         
         if cache_key in self.cached_responses:
             cached = self.cached_responses[cache_key]
-            logging.info("Использован кэшированный многосообщенческий ответ")
+            self.logger.info("Использован кэшированный многосообщенческий ответ")
             return self._add_message_variations(cached)
         
         try:
-            logging.info(f"Отправка split-запроса к модели {self.model}")
+            self.logger.info(f"Отправка split-запроса к модели {self.model}")
             response = await self.ai_client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -54,7 +55,7 @@ class OptimizedAI:
             )
             
             raw_response = response.choices[0].message.content.strip()
-            logging.info(f"Получен raw ответ: {raw_response[:100]}...")
+            self.logger.info(f"Получен raw ответ: {raw_response[:100]}...")
             
             # Обрабатываем ответ
             messages = self._process_raw_response(raw_response)
@@ -65,7 +66,7 @@ class OptimizedAI:
             return messages
             
         except Exception as e:
-            logging.error(f"Ошибка генерации split-ответа: {e}")
+            self.logger.error(f"Ошибка генерации split-ответа: {e}")
             return self._get_fallback_split_response(context, user_message)
     
     def _build_split_system_prompt(self, context: Dict[str, Any]) -> str:
@@ -82,7 +83,7 @@ class OptimizedAI:
 Недавние воспоминания: {context.get('memory_context', 'Общаемся недавно')}
 
 Отвечай по правилам:
-1. Разделяй ответ на 2-4 самостоятельных сообщения через ||
+1. Разделяй ответ на 2-4 самостоятельных сообщения через символ ||
 2. Каждое сообщение: 7-25 слов, заканчивай естественно (.?!) 
 3. Первое сообщение — эмоциональная реакция
 4. Последнее — вопрос или призыв к действию
@@ -109,8 +110,10 @@ class OptimizedAI:
     def _process_raw_response(self, text: str) -> List[str]:
         """Преобразование сырого ответа в список сообщений"""
         
-        # Разделение по указанному разделителю
-        parts = [p.strip() for p in text.split('||') if p.strip()]
+        # Исправлено: Улучшенное разделение по указанному разделителю
+        # Используем регулярное выражение для поиска разделителя ||
+        parts = re.split(r'\s*\|\|\s*', text)
+        parts = [p.strip() for p in parts if p.strip()]
         
         # Автоматическая постобработка
         processed = []
@@ -120,6 +123,9 @@ class OptimizedAI:
             
             # Удаление лишних кавычек
             clean_part = clean_part.strip('"\'')
+            
+            # Удаление одиночных символов | (которые могли остаться)
+            clean_part = clean_part.replace('|', '')
             
             # Добавление забытых знаков препинания
             if clean_part and not clean_part.endswith(('.', '!', '?', '…')):
@@ -137,7 +143,10 @@ class OptimizedAI:
     
     def _split_fallback(self, text: str) -> List[str]:
         """Резервное разделение если модель ошиблась"""
+        # Исправлено: Улучшенное разделение на предложения
         sentences = re.split(r'(?<=[.!?…])\s+', text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
         grouped = []
         current = ""
         
@@ -258,4 +267,5 @@ class OptimizedAI:
     def clear_cache(self):
         """Очищает кэш ответов"""
         self.cached_responses.clear()
-        logging.info("Кэш AI ответов очищен")
+        self.logger.info("Кэш AI ответов очищен")
+

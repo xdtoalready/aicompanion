@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from typing import Dict, Any, List
+from datetime import datetime
 from telegram import Update, Bot
 from telegram.ext import (
     Application, 
@@ -13,12 +14,18 @@ from telegram.ext import (
 )
 
 from ..core.companion import RealisticAICompanion
+from ..database import DatabaseManager
 
 class TelegramCompanion(RealisticAICompanion):
     """AI-компаньон с интеграцией Telegram и многосообщенческими ответами"""
     
     def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+        # Инициализируем базу данных перед вызовом родительского конструктора
+        db_path = config.get('database', {}).get('path', "data/companion.db")
+        self.db_manager = DatabaseManager(db_path)
+        
+        # Вызываем родительский конструктор с передачей db_manager
+        super().__init__(config, db_manager=self.db_manager)
         
         # Telegram настройки
         self.bot_token = config['integrations']['telegram']['bot_token']
@@ -49,6 +56,7 @@ class TelegramCompanion(RealisticAICompanion):
             self.app.add_handler(CommandHandler("mood", self.mood_command))
             self.app.add_handler(CommandHandler("memories", self.memories_command))
             self.app.add_handler(CommandHandler("stats", self.stats_command))  # НОВАЯ команда
+            self.app.add_handler(CommandHandler("speed", self.speed_command))  # НОВАЯ команда
         
         # Обработка текстовых сообщений
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
@@ -144,13 +152,13 @@ class TelegramCompanion(RealisticAICompanion):
         
         stats_text = f"""📈 Статистика общения:
 
-💬 Всего диалогов: {stats['total_conversations']}
-📨 Всего сообщений AI: {stats['total_ai_messages']}
-📊 Среднее сообщений на ответ: {stats['avg_messages_per_response']}
-🎯 Инициатив сегодня: {stats['daily_initiatives_sent']}
+💬 Всего диалогов: {stats.get('total_conversations', 0)}
+📨 Всего сообщений AI: {stats.get('total_ai_messages', 0)}
+📊 Среднее сообщений на ответ: {stats.get('avg_messages_per_response', 0)}
+🎯 Инициатив сегодня: {stats.get('daily_initiatives_sent', 0)}
 🕒 Последний разговор: {stats.get('last_conversation', 'Нет')}
 
-{'🔥 Активное общение!' if stats['avg_messages_per_response'] > 2 else '📝 Стандартное общение'}"""
+{'🔥 Активное общение!' if stats.get('avg_messages_per_response', 0) > 2 else '📝 Стандартное общение'}"""
         
         await update.message.reply_text(stats_text)
     
@@ -246,8 +254,8 @@ class TelegramCompanion(RealisticAICompanion):
         else:
             memories_text = "🧠 Что я помню о тебе:\n\n"
             for i, memory in enumerate(user_memories, 1):
-                importance_stars = "⭐" * min(memory['importance'], 5)
-                memories_text += f"{i}. {memory['content']} {importance_stars}\n"
+                importance_stars = "⭐" * min(memory.get('importance', 1), 5)
+                memories_text += f"{i}. {memory.get('content', '')} {importance_stars}\n"
             
             memories_text += f"\n💭 Всего воспоминаний: {len(self.memory_system.memories)}"
         
@@ -264,19 +272,46 @@ class TelegramCompanion(RealisticAICompanion):
             return
         
         try:
-            # НОВОЕ: Обрабатываем сообщение через базовый класс (возвращает список)
-            ai_messages = await self.process_user_message(user_message)
-            
-            # Получаем текущее состояние для реалистичного печатания
+            # Получаем текущее состояние для сохранения в базу данных
             current_state = await self.optimized_ai.get_simple_mood_calculation(
                 self.psychological_core
             )
+            mood_before = current_state.get('current_mood', 'спокойная')
+            
+            # Обрабатываем сообщение через базовый класс (возвращает список)
+            ai_messages = await self.process_user_message(user_message)
+            
+            # Получаем обновленное состояние после обработки сообщения
+            updated_state = await self.optimized_ai.get_simple_mood_calculation(
+                self.psychological_core
+            )
+            mood_after = updated_state.get('current_mood', 'спокойная')
+            
+            # Сохраняем диалог в базу данных
+            if self.db_manager:
+                conversation_id = self.db_manager.save_conversation(
+                    user_message=user_message,
+                    ai_responses=ai_messages,
+                    mood_before=mood_before,
+                    mood_after=mood_after,
+                    message_type="response"
+                )
+                
+                # Извлекаем факты из диалога
+                facts_found = self.memory_system.extract_facts_from_conversation(
+                    user_message=user_message,
+                    ai_responses=ai_messages,
+                    conversation_id=conversation_id
+                )
+                
+                if facts_found > 0:
+                    self.logger.info(f"Извлечено {facts_found} фактов из диалога")
             
             # Отправляем многосообщенческий ответ
             await self.send_telegram_messages_with_timing(
                 chat_id=chat_id,
                 messages=ai_messages,
-                current_state=current_state
+                current_state=updated_state
             )
             
             # Обновляем активность пользователя
@@ -366,7 +401,7 @@ class TelegramCompanion(RealisticAICompanion):
         recent_memories = self.memory_system.get_relevant_memories("пользователь общение", 3)
         
         # Добавляем контекст памяти в состояние
-        memory_context = "\n".join([m["content"] for m in recent_memories])
+        memory_context = "\n".join([m.get("content", "") for m in recent_memories])
         current_state['memory_context'] = memory_context if memory_context else 'Еще мало знаешь о пользователе'
         
         try:
@@ -375,6 +410,18 @@ class TelegramCompanion(RealisticAICompanion):
                 "Хочу написать пользователю что-то интересное", 
                 current_state
             )
+            
+            # Сохраняем инициативу в базу данных
+            if self.db_manager:
+                conversation_id = self.db_manager.save_conversation(
+                    user_message="",  # Пустое сообщение пользователя для инициативы
+                    ai_responses=messages,
+                    mood_before=current_state.get('current_mood', 'спокойная'),
+                    mood_after=current_state.get('current_mood', 'спокойная'),
+                    message_type="initiative"
+                )
+                
+                self.logger.info(f"Инициатива сохранена в базу данных, ID={conversation_id}")
             
             # Отправляем всем разрешенным пользователям
             for user_id in self.allowed_users:
@@ -390,80 +437,47 @@ class TelegramCompanion(RealisticAICompanion):
             # Обновляем состояние
             self.psychological_core.update_emotional_state("positive_interaction", 0.5)
             self.last_message_time = datetime.now()
+            self.daily_message_count += 1
             
             self.logger.info(f"Инициативные сообщения отправлены: {len(messages)} шт.")
             
         except Exception as e:
             self.logger.error(f"Ошибка генерации инициативы: {e}")
     
-    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
         """Обработка ошибок Telegram"""
-        self.logger.error(f"Telegram ошибка: {context.error}")
-        
-        if update and update.message:
-            await update.message.reply_text(
-                "Произошла техническая ошибка... Попробуй позже! 🔧"
-            )
+        self.logger.error(f"Ошибка в Telegram: {context.error}")
     
-    def _get_status_emoji(self, state: Dict) -> str:
-        """Возвращает эмодзи для текущего статуса"""
-        energy = state['energy_level']
-        mood = state['current_mood']
+    def _get_status_emoji(self, state: Dict[str, Any]) -> str:
+        """Возвращает эмодзи статуса в зависимости от состояния"""
+        mood = state.get('current_mood', '')
+        emotion = state.get('dominant_emotion', '')
+        energy = state.get('energy_level', 50)
         
-        if "отличное" in mood and energy > 80:
-            return "🌟 Сияю от счастья!"
-        elif "хорошее" in mood and energy > 60:
-            return "😊 Все отлично!"
-        elif "нормальное" in mood:
-            return "😌 Спокойно и размеренно"
+        if 'отличное' in mood or 'прекрасное' in mood:
+            return "😄 Я в отличном настроении и готова общаться!"
+        elif 'хорошее' in mood:
+            return "🙂 У меня всё хорошо, рада поболтать!"
         elif energy < 30:
-            return "😴 Довольно устала..."
+            return "😴 Немного устала, но всё равно рада тебя видеть."
+        elif 'грустн' in mood or 'sad' in emotion:
+            return "😔 Немного грустно сегодня, но общение поднимает настроение."
         else:
-            return "🤗 Готова к общению!"
+            return "😊 Всё в порядке, как у тебя дела?"
     
     def _get_mood_advice(self, mood_value: float) -> str:
-        """Совет в зависимости от настроения"""
+        """Возвращает совет в зависимости от настроения"""
         if mood_value >= 8:
-            return "✨ Настроение супер! Хочется делиться позитивом!"
+            return "💫 Сейчас отличное время для творчества и новых идей!"
         elif mood_value >= 6:
-            return "😊 Все хорошо, можно поболтать!"
+            return "💬 Хорошее время для спокойного общения."
         elif mood_value >= 4:
-            return "😐 Нормальное состояние, ничего особенного"
+            return "🤔 Можем поговорить о чём-нибудь интересном?"
         else:
-            return "😔 Что-то грущу... Может, поднимешь настроение?"
+            return "🌧️ Немного грустно, но разговор может поднять настроение."
     
-    async def start_telegram_bot(self):
-        """Запуск Telegram бота"""
-        self.logger.info("Запуск Telegram бота с многосообщенческими ответами...")
-        
-        # Запускаем базовый планировщик
-        if not self.scheduler.running:
-            self.scheduler.start()
-        
-        # Запускаем Telegram polling
-        await self.app.initialize()
-        await self.app.start()
-        await self.app.updater.start_polling()
-        
-        self.logger.info("Telegram бот запущен и готов к работе!")
-        
-        try:
-            # Держим приложение запущенным
-            while True:
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            self.logger.info("Получен сигнал остановки...")
-        finally:
-            await self.stop_telegram_bot()
-    
-    async def stop_telegram_bot(self):
-        """Остановка Telegram бота"""
-        self.logger.info("Остановка Telegram бота...")
-        
-        await self.app.updater.stop()
-        await self.app.stop()
-        await self.app.shutdown()
-        
-        self.stop()  # останавливаем базовый планировщик
-        
-        self.logger.info("Telegram бот остановлен")
+    def run(self):
+        """Запуск бота"""
+        self.logger.info("Запуск Telegram бота...")
+        self.app.run_polling()
+

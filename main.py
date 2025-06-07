@@ -1,195 +1,25 @@
-# Файл: main.py
-# Основной запускаемый файл AI-компаньона
+#!/usr/bin/env python3
+"""
+Основной скрипт запуска AI-компаньона
+"""
 
-import asyncio
-import json
-import logging
-import os
 import sys
+import os
+import asyncio
+import logging
+import json
 from pathlib import Path
+from datetime import datetime
 
-# Добавляем путь к app в PYTHONPATH
-sys.path.append(str(Path(__file__).parent))
-
-from app.integrations.telegram_bot import TelegramCompanion
-from app.core.companion import RealisticAICompanion
-
-def load_config(config_path: str = "config/config.json") -> dict:
-    """Загрузка конфигурации"""
-    
-    if not os.path.exists(config_path):
-        print(f"❌ Файл конфигурации не найден: {config_path}")
-        print("📋 Скопируйте config/config.example.json в config/config.json и заполните настройки")
-        sys.exit(1)
-    
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        
-        # Проверяем обязательные поля
-        required_fields = [
-            'ai.openrouter_api_key',
-            'character.name'
-        ]
-        
-        for field in required_fields:
-            keys = field.split('.')
-            value = config
-            for key in keys:
-                value = value.get(key)
-                if value is None:
-                    print(f"❌ Отсутствует обязательное поле в конфигурации: {field}")
-                    sys.exit(1)
-        
-        # Проверяем API ключ
-        if config['ai']['openrouter_api_key'] == 'YOUR_OPENROUTER_API_KEY_HERE':
-            print("❌ Пожалуйста, укажите ваш OpenRouter API ключ в config.json")
-            print("🔑 Получить ключ можно на: https://openrouter.ai")
-            sys.exit(1)
-        
-        return config
-        
-    except json.JSONDecodeError as e:
-        print(f"❌ Ошибка в формате JSON конфигурации: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"❌ Ошибка загрузки конфигурации: {e}")
-        sys.exit(1)
-
-def setup_logging(config: dict):
-    """Настройка логирования"""
-    
-    log_config = config.get('logging', {})
-    log_level = log_config.get('level', 'INFO')
-    log_file = log_config.get('file', 'logs/companion.log')
-    
-    # Создаем директорию для логов
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    
-    # Настройка логирования
-    logging.basicConfig(
-        level=getattr(logging, log_level),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-
-def create_directories(config: dict):
-    """Создание необходимых директорий"""
-    
-    directories = [
-        'data',  # для базы данных
-        'logs',  # для логов
-        'config',  # для конфигурации
-        os.path.dirname(config['database']['path'])  # директория БД
-    ]
-    
-    for directory in directories:
-        if directory:
-            os.makedirs(directory, exist_ok=True)
-
-async def main():
-    """Основная функция запуска"""
-    
-    print("🚀 Запуск AI-компаньона...")
-    print("=" * 50)
-    
-    # Загружаем конфигурацию
-    config = load_config()
-    
-    # Создаем директории
-    create_directories(config)
-    
-    # Настраиваем логирование
-    setup_logging(config)
-    
-    logger = logging.getLogger(__name__)
-    logger.info("Запуск AI-компаньона")
-    
-    try:
-        # Определяем тип запуска
-        telegram_enabled = config.get('integrations', {}).get('telegram', {}).get('enabled', False)
-        web_enabled = config.get('integrations', {}).get('web', {}).get('enabled', False)
-        
-        if telegram_enabled:
-            # Проверяем токен Telegram
-            bot_token = config['integrations']['telegram'].get('bot_token')
-            if not bot_token or bot_token == 'YOUR_TELEGRAM_BOT_TOKEN':
-                print("❌ Пожалуйста, укажите токен Telegram бота в config.json")
-                print("🤖 Создать бота можно у @BotFather в Telegram")
-                return
-            
-            print("📱 Запуск с интеграцией Telegram...")
-            companion = TelegramCompanion(config)
-            await companion.start_telegram_bot()
-            
-        elif web_enabled:
-            print("🌐 Запуск с веб-интерфейсом...")
-            # TODO: Реализовать веб-интерфейс
-            print("⚠️  Веб-интерфейс пока не реализован")
-            print("💡 Используйте Telegram интеграцию")
-            
-        else:
-            print("🔧 Запуск в консольном режиме...")
-            companion = RealisticAICompanion(config)
-            
-            # Простой консольный интерфейс
-            await run_console_mode(companion)
-    
-    except KeyboardInterrupt:
-        print("\n👋 До свидания!")
-        logger.info("Получен сигнал остановки от пользователя")
-    
-    except Exception as e:
-        print(f"❌ Критическая ошибка: {e}")
-        logger.error(f"Критическая ошибка при запуске: {e}", exc_info=True)
-        sys.exit(1)
-
-async def run_console_mode(companion: RealisticAICompanion):
-    """Консольный режим для тестирования"""
-    
-    print("\n💬 Консольный режим AI-компаньона")
-    print("Введите 'exit' для выхода, 'status' для статуса")
-    print("-" * 40)
-    
-    # Запускаем планировщик
-    await companion.start()
-    
-    try:
-        while True:
-            user_input = input("\n👤 Вы: ").strip()
-            
-            if user_input.lower() == 'exit':
-                break
-            elif user_input.lower() == 'status':
-                state = await companion.optimized_ai.get_simple_mood_calculation(
-                    companion.psychological_core
-                )
-                print(f"🤖 Статус: {state['current_mood']}, энергия: {state['energy_level']}/100")
-                continue
-            elif not user_input:
-                continue
-            
-            # Обрабатываем сообщение
-            response = await companion.process_user_message(user_input)
-            print(f"🤖 AI: {response}")
-            
-    except KeyboardInterrupt:
-        pass
-    finally:
-        companion.stop()
-
-def check_python_version():
-    """Проверка версии Python"""
-    if sys.version_info < (3, 8):
-        print("❌ Требуется Python 3.8 или выше")
-        print(f"📋 Текущая версия: {sys.version}")
-        sys.exit(1)
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 def print_banner():
-    """Печать баннера"""
+    """Выводит баннер приложения"""
     banner = """
 ╔══════════════════════════════════════════════════════════════╗
 ║                    🤖 AI-КОМПАНЬОН                          ║
@@ -200,12 +30,141 @@ def print_banner():
 ║  🧠 Живая психология  💭 Инициативное общение                ║
 ║  🎭 Смена настроений  📚 Долгосрочная память                 ║
 ╚══════════════════════════════════════════════════════════════╝
-    """
+"""
     print(banner)
+    print("🚀 Запуск AI-компаньона...")
+    print("==================================================")
+
+def load_config(config_path="config.json"):
+    """Загружает конфигурацию из файла"""
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        logger.info(f"Конфигурация загружена из {config_path}")
+        return config
+    except FileNotFoundError:
+        logger.error(f"Файл конфигурации не найден: {config_path}")
+        logger.info("Создаем конфигурацию по умолчанию")
+        
+        # Конфигурация по умолчанию
+        default_config = {
+            "ai": {
+                "model": "deepseek/deepseek-chat-v3-0324:free",
+                "max_tokens": 350,
+                "temperature": 0.85
+            },
+            "character": {
+                "name": "Алиса",
+                "personality": {
+                    "extraversion": 7.0,
+                    "agreeableness": 8.0,
+                    "conscientiousness": 6.0,
+                    "neuroticism": 4.0,
+                    "openness": 9.0
+                }
+            },
+            "typing_simulator": {
+                "default_speed_mode": "normal",
+                "variability": 0.2
+            },
+            "integrations": {
+                "telegram": {
+                    "bot_token": "YOUR_BOT_TOKEN_HERE",
+                    "allowed_users": []
+                }
+            },
+            "database": {
+                "path": "data/companion.db"
+            },
+            "debug": {
+                "commands_enabled": True
+            }
+        }
+        
+        # Сохраняем конфигурацию по умолчанию
+        os.makedirs(os.path.dirname(config_path) if os.path.dirname(config_path) else '.', exist_ok=True)
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(default_config, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Создана конфигурация по умолчанию: {config_path}")
+        return default_config
+    except json.JSONDecodeError:
+        logger.error(f"Ошибка формата JSON в файле конфигурации: {config_path}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Ошибка загрузки конфигурации: {e}")
+        sys.exit(1)
+
+def setup_database(config):
+    """Настраивает базу данных"""
+    try:
+        from app.database import init_database
+        
+        db_path = config.get('database', {}).get('path', "data/companion.db")
+        logger.info(f"Инициализация базы данных: {db_path}")
+        
+        # Создаем директорию для базы данных
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        
+        # Инициализируем базу данных, если она не существует
+        if not os.path.exists(db_path):
+            init_database(db_path)
+            logger.info(f"База данных создана: {db_path}")
+        else:
+            logger.info(f"Используется существующая база данных: {db_path}")
+        
+        return db_path
+    except Exception as e:
+        logger.error(f"Ошибка настройки базы данных: {e}")
+        return None
+
+async def main():
+    """Основная функция запуска"""
+    print_banner()
+    logger.info("Запуск AI-компаньона")
+    
+    try:
+        # Загружаем конфигурацию
+        config = load_config()
+        
+        # Настраиваем базу данных
+        db_path = setup_database(config)
+        
+        # Проверяем наличие токена Telegram
+        if config['integrations']['telegram']['bot_token'] == "YOUR_BOT_TOKEN_HERE":
+            logger.warning("Токен Telegram бота не настроен в конфигурации")
+            print("\n⚠️  Внимание: Токен Telegram бота не настроен!")
+            print("   Отредактируйте файл config.json и укажите правильный токен.")
+            print("   Запуск в демо-режиме без Telegram...\n")
+            
+            # Запускаем демо-режим
+            from run_demo import run_demo
+            await run_demo(config)
+            return
+        
+        # Запускаем с интеграцией Telegram
+        print("📱 Запуск с интеграцией Telegram...")
+        
+        # Импортируем необходимые модули
+        from app.integrations.telegram_bot import TelegramCompanion
+        
+        # Создаем экземпляр компаньона
+        companion = TelegramCompanion(config)
+        
+        # Запускаем бота
+        companion.run()
+        
+    except Exception as e:
+        logger.error(f"Критическая ошибка при запуске: {e}")
+        print(f"❌ Критическая ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
-    print_banner()
-    check_python_version()
-    
-    # Запускаем основную функцию
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 Завершение работы AI-компаньона...")
+        sys.exit(0)
+
