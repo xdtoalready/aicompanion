@@ -1,0 +1,63 @@
+{
+  "ai": {
+    "openrouter_api_key": "YOUR_OPENROUTER_API_KEY_HERE",
+    "model": "deepseek/deepseek-chat",
+    "max_tokens": 300,
+    "temperature": 0.8
+  },
+  "database": {
+    "path": "data/companion.db",
+    "backup_interval_hours": 24
+  },
+  "character": {
+    "name": "Алиса",
+    "age": 25,
+    "gender": "female",
+    "personality_traits": {
+      "extraversion": 6.5,
+      "agreeableness": 7.8,
+      "conscientiousness": 6.2,
+      "neuroticism": 4.1,
+      "openness": 8.3
+    },
+    "core_values": {
+      "family_importance": 8,
+      "career_ambition": 6,
+      "creativity_drive": 9,
+      "social_connection": 7
+    }
+  },
+  "behavior": {
+    "max_daily_initiatives": 8,
+    "min_hours_between_initiatives": 2,
+    "consciousness_cycle_minutes": 30,
+    "sleep_hours": {
+      "start": 23,
+      "end": 7
+    }
+  },
+  "integrations": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "allowed_users": []
+    },
+    "web": {
+      "enabled": false,
+      "port": 5000,
+      "host": "localhost"
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/companion.log",
+    "max_file_size_mb": 10,
+    "backup_count": 5
+  },
+  "memory": {
+    "max_working_memories": 50,
+    "max_daily_memories": 200,
+    "importance_threshold": 7,
+    "consolidation_hour": 3
+  }
+}

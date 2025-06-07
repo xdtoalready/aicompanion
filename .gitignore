@@ -1,0 +1,126 @@
+# Файл: .gitignore
+# Git исключения для AI-компаньона
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Виртуальные окружения
+venv/
+env/
+ENV/
+.venv/
+.env
+
+# IDE и редакторы
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.spyderproject
+.spyproject
+.ropeproject
+
+# Данные и логи (приватная информация)
+data/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Конфигурация (содержит секреты)
+config/config.json
+.env
+.env.local
+.env.production
+
+# Временные файлы
+*.tmp
+*.temp
+.cache/
+.pytest_cache/
+
+# Системные файлы
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Резервные копии
+*.bak
+*.backup
+backup-*/
+
+# Docker
+.dockerignore
+
+# Документация сборки
+docs/_build/
+
+---
+
+# Файл: .env.example
+# Пример переменных окружения (скопируйте в .env)
+
+# AI Configuration
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+AI_MODEL=deepseek/deepseek-chat
+AI_TEMPERATURE=0.8
+
+# Telegram Bot
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_ALLOWED_USERS=123456789,987654321
+
+# Database
+DATABASE_PATH=data/companion.db
+DATABASE_BACKUP_INTERVAL=24
+
+# Logging
+LOG_LEVEL=INFO
+LOG_FILE=logs/companion.log
+
+# Character Settings
+CHARACTER_NAME=Алиса
+CHARACTER_AGE=25
+CHARACTER_GENDER=female
+
+# Behavior
+MAX_DAILY_INITIATIVES=8
+MIN_HOURS_BETWEEN_INITIATIVES=2
+CONSCIOUSNESS_CYCLE_MINUTES=30
+
+# Sleep Schedule
+SLEEP_START_HOUR=23
+SLEEP_END_HOUR=7
+
+# Server Settings (for web interface)
+WEB_HOST=localhost
+WEB_PORT=5000
+WEB_DEBUG=false
+
+# Timezone
+TZ=Europe/Moscow
