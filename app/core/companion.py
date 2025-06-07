@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import random
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import openai
@@ -25,7 +26,7 @@ class RealisticAICompanion:
         
         # AI клиент
         self.ai_client = openai.OpenAI(
-            api_key=config['openrouter_api_key'],
+            api_key=config['ai']['openrouter_api_key'],
             base_url="https://openrouter.ai/api/v1"
         )
         

@@ -1,32 +1,29 @@
-# Зависимости для AI-компаньона
+# Зависимости для AI-компаньона (Python 3.12 совместимые)
 
 # Основные зависимости
-openai==1.12.0
-APScheduler==3.10.4
-asyncio-mqtt==0.16.1
-
-# База данных
-sqlite3  # встроен в Python
+openai>=1.40.0
+APScheduler>=3.10.4
+asyncio-mqtt>=0.16.1
 
 # Веб и API
-flask==3.0.0
-python-telegram-bot==20.7
+flask>=3.0.0
+python-telegram-bot>=20.7
 
 # Утилиты
-python-dotenv==1.0.0
-pydantic==2.5.0
-loguru==0.7.2
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+loguru>=0.7.2
 
-# Обработка данных
-pandas==2.1.4
-numpy==1.24.3
+# Обработка данных (обновленные версии)
+pandas>=2.2.0
+numpy>=1.26.0
 
 # Для разработки
-pytest==7.4.3
-black==23.12.1
-flake8==7.0.0
+pytest>=7.4.3
+black>=23.12.1
+flake8>=7.0.0
 
 # Дополнительные
-requests==2.31.0
-python-dateutil==2.8.2
-pytz==2023.3
+requests>=2.31.0
+python-dateutil>=2.8.2
+pytz>=2023.3
