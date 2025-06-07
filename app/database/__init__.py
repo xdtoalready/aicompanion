@@ -25,4 +25,10 @@ def init_database(db_path: str = "data/companion.db"):
     
     return db_path
 
-__all__ = ['init_database']
+# Импортируем новую систему памяти
+try:
+    from .memory_manager import DatabaseMemoryManager, EnhancedMemorySystem
+    __all__ = ['init_database', 'DatabaseMemoryManager', 'EnhancedMemorySystem']
+except ImportError:
+    # Fallback если файл не создан
+    __all__ = ['init_database']

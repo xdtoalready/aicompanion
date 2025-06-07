@@ -1,23 +1,28 @@
 # Основной модуль AI-компаньона с многосообщенческими ответами
-import sys
+
 import asyncio
 import json
 import logging
 import random
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 from openai import AsyncOpenAI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+# Добавляем корневой путь в sys.path ОДИН РАЗ
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
+# Относительные импорты для модулей внутри core
 from .psychology import PsychologicalCore
 from .memory import AdvancedMemorySystem
 from .ai_client import OptimizedAI
 from .typing_simulator import TypingSimulator, TypingIndicator
 
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent))
-from ..database.memory_manager import EnhancedMemorySystem
+# Абсолютный импорт для database (так как sys.path добавлен)
+from app.database.memory_manager import EnhancedMemorySystem
 
 class RealisticAICompanion:
     """Реалистичный AI-компаньон с многосообщенческими ответами"""
