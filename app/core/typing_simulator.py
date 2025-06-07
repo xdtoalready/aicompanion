@@ -13,6 +13,9 @@ class TypingSimulator:
     def __init__(self, config: Dict[str, Any] = None):
         self.config = config or {}
         
+        # Инициализируем логгер в начале конструктора
+        self.logger = logging.getLogger(__name__)
+        
         # Режимы скорости печатания
         self.speed_modes = {
             "lightning": {  # Мгновенные ответы
@@ -51,8 +54,6 @@ class TypingSimulator:
             "angry": 1.5,        # быстро и резко
             "tired": 0.5         # очень медленно
         }
-        
-        self.logger = logging.getLogger(__name__)
     
     def _apply_speed_mode(self, mode: str):
         """Применяет настройки режима скорости"""
@@ -305,3 +306,4 @@ class TypingIndicator:
         self.is_typing = False
         # В Telegram индикатор исчезает автоматически через 5 секунд
         # или при отправке сообщения
+
