@@ -25,33 +25,33 @@ class OptimizedAI:
         
         logging.info(f"AI клиент инициализирован: модель={self.model}, max_tokens={self.max_tokens}")
     
-def _analyze_question_type(self, user_message: str) -> str:
-    """Анализирует тип вопроса пользователя (улучшенная версия)"""
-    
-    message_lower = user_message.lower()
-    
-    # Вопросы о мнении (приоритет выше)
-    if any(word in message_lower for word in ["что думаешь", "как считаешь", "твое мнение", "по-твоему"]):
-        return "opinion_question"
-    
-    # Вопросы о предпочтениях (какой/какая без сравнения)
-    if any(word in message_lower for word in ["какой", "какая", "какие"]) and not any(word in message_lower for word in ["лучше", "хуже", "или"]):
-        return "preference_question"
-    
-    # Сравнительные вопросы (приоритет после preference)
-    if any(word in message_lower for word in ["лучше", "хуже", "vs", "против", "сравни"]) or " или " in message_lower:
-        return "comparison_question"
-    
-    # Вопросы "что предпочитаешь"
-    if any(word in message_lower for word in ["что предпочитаешь", "предпочитаешь", "выбираешь"]):
-        return "preference_question"
-    
-    # Прямые вопросы с "?"
-    if "?" in user_message:
-        return "direct_question"
-    
-    # Обычное сообщение
-    return "statement"
+    def _analyze_question_type(self, user_message: str) -> str:
+        """Анализирует тип вопроса пользователя (улучшенная версия)"""
+        
+        message_lower = user_message.lower()
+        
+        # Вопросы о мнении (приоритет выше)
+        if any(word in message_lower for word in ["что думаешь", "как считаешь", "твое мнение", "по-твоему"]):
+            return "opinion_question"
+        
+        # Вопросы о предпочтениях (какой/какая без сравнения)
+        if any(word in message_lower for word in ["какой", "какая", "какие"]) and not any(word in message_lower for word in ["лучше", "хуже", "или"]):
+            return "preference_question"
+        
+        # Сравнительные вопросы (приоритет после preference)
+        if any(word in message_lower for word in ["лучше", "хуже", "vs", "против", "сравни"]) or " или " in message_lower:
+            return "comparison_question"
+        
+        # Вопросы "что предпочитаешь"
+        if any(word in message_lower for word in ["что предпочитаешь", "предпочитаешь", "выбираешь"]):
+            return "preference_question"
+        
+        # Прямые вопросы с "?"
+        if "?" in user_message:
+            return "direct_question"
+        
+        # Обычное сообщение
+        return "statement"
     
     def _process_raw_response(self, text: str) -> List[str]:
         """Преобразование сырого ответа в список сообщений"""
