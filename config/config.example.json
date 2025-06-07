@@ -2,8 +2,8 @@
   "ai": {
     "openrouter_api_key": "YOUR_OPENROUTER_API_KEY_HERE",
     "model": "deepseek/deepseek-chat",
-    "max_tokens": 300,
-    "temperature": 0.8
+    "max_tokens": 350,
+    "temperature": 0.85
   },
   "database": {
     "path": "data/companion.db",
@@ -36,11 +36,20 @@
       "end": 7
     }
   },
+  "typing": {
+    "mode": "fast",
+    "comment": "Режимы: lightning (мгновенно), fast (быстро), normal (обычно), slow (медленно)",
+    "customize_by_emotion": true,
+    "show_typing_indicator": true,
+    "natural_pauses": true
+  },
   "integrations": {
     "telegram": {
       "enabled": true,
       "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
-      "allowed_users": []
+      "allowed_users": [],
+      "multi_message_responses": true,
+      "realistic_typing": true
     },
     "web": {
       "enabled": false,
@@ -52,12 +61,18 @@
     "level": "INFO",
     "file": "logs/companion.log",
     "max_file_size_mb": 10,
-    "backup_count": 5
+    "backup_count": 5,
+    "log_typing_timings": false
   },
   "memory": {
     "max_working_memories": 50,
     "max_daily_memories": 200,
     "importance_threshold": 7,
     "consolidation_hour": 3
+  },
+  "advanced": {
+    "cache_ai_responses": true,
+    "optimize_token_usage": true,
+    "experimental_features": false
   }
 }

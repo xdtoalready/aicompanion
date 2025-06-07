@@ -13,23 +13,63 @@ class TypingSimulator:
     def __init__(self, config: Dict[str, Any] = None):
         self.config = config or {}
         
-        # Базовые параметры печатания
-        self.base_typing_speed = 40  # слов в минуту (средняя скорость)
-        self.min_typing_time = 1.0   # минимальное время печатания
-        self.max_typing_time = 12.0  # максимальное время печатания
+        # Режимы скорости печатания
+        self.speed_modes = {
+            "lightning": {  # Мгновенные ответы
+                "base_speed": 200,
+                "min_time": 0.3,
+                "max_time": 2.0
+            },
+            "fast": {       # Быстрые ответы (по умолчанию)
+                "base_speed": 100,
+                "min_time": 0.5,
+                "max_time": 5.0
+            },
+            "normal": {     # Обычные ответы
+                "base_speed": 60,
+                "min_time": 1.0,
+                "max_time": 8.0
+            },
+            "slow": {       # Медленные, задумчивые ответы
+                "base_speed": 40,
+                "min_time": 2.0,
+                "max_time": 12.0
+            }
+        }
         
-        # Эмоциональные модификаторы
+        # Устанавливаем режим по умолчанию
+        self.current_mode = config.get('typing_mode', 'fast')
+        self._apply_speed_mode(self.current_mode)
+        
+        # Эмоциональные модификаторы (обновлены для быстрого режима)
         self.emotion_modifiers = {
-            "excited": 1.3,      # быстрее печатает когда возбуждена
-            "happy": 1.1,        # немного быстрее
+            "excited": 1.4,      # быстрее печатает когда возбуждена
+            "happy": 1.2,        # немного быстрее
             "calm": 1.0,         # базовая скорость
-            "anxious": 0.8,      # медленнее, неуверенно
-            "sad": 0.7,          # медленно и печально
-            "angry": 1.4,        # быстро и резко
-            "tired": 0.6         # очень медленно
+            "anxious": 0.7,      # медленнее, неуверенно
+            "sad": 0.6,          # медленно и печально
+            "angry": 1.5,        # быстро и резко
+            "tired": 0.5         # очень медленно
         }
         
         self.logger = logging.getLogger(__name__)
+    
+    def _apply_speed_mode(self, mode: str):
+        """Применяет настройки режима скорости"""
+        if mode not in self.speed_modes:
+            mode = 'fast'
+        
+        settings = self.speed_modes[mode]
+        self.base_typing_speed = settings['base_speed']
+        self.min_typing_time = settings['min_time']
+        self.max_typing_time = settings['max_time']
+        
+        self.logger.debug(f"Режим печатания: {mode} ({self.base_typing_speed} слов/мин)")
+    
+    def set_speed_mode(self, mode: str):
+        """Устанавливает режим скорости печатания"""
+        self.current_mode = mode
+        self._apply_speed_mode(mode)
     
     def calculate_typing_time(self, message: str, emotional_state: str = "calm", 
                             energy_level: int = 50) -> float:
@@ -116,25 +156,48 @@ class TypingSimulator:
         return max(0.2, min(3.0, final_pause))
     
     def _are_messages_connected(self, msg1: str, msg2: str) -> bool:
-        """Проверяет логическую связность сообщений"""
+        """Проверяет логическую связность сообщений (улучшенный алгоритм)"""
         
-        # Простая эвристика связности
+        msg1_lower = msg1.lower()
+        msg2_lower = msg2.lower()
         
         # Если второе сообщение начинается с связок
-        connectors = ['и', 'а', 'но', 'да', 'так', 'ну', 'вот', 'кстати', 'кроме того']
-        if any(msg2.lower().startswith(c) for c in connectors):
+        connectors = ['и', 'а', 'но', 'да', 'так', 'ну', 'вот', 'кстати', 'кроме того', 
+                     'хм', 'ой', 'ага', 'да-да', 'именно', 'точно', 'конечно']
+        if any(msg2_lower.startswith(c + ' ') or msg2_lower.startswith(c + ',') for c in connectors):
             return True
         
-        # Если много общих слов
-        words1 = set(msg1.lower().split())
-        words2 = set(msg2.lower().split())
-        common_words = words1.intersection(words2)
+        # Если много общих значимых слов (исключаем служебные)
+        stop_words = {'и', 'в', 'на', 'с', 'по', 'для', 'от', 'к', 'из', 'что', 'как', 
+                     'это', 'тот', 'который', 'а', 'но', 'или', 'же', 'бы', 'был'}
         
-        if len(common_words) > 1:
-            return True
+        words1 = set(msg1_lower.split()) - stop_words
+        words2 = set(msg2_lower.split()) - stop_words
         
-        # Если второе продолжает мысль (вопрос после утверждения)
+        if len(words1) > 0 and len(words2) > 0:
+            common_words = words1.intersection(words2)
+            overlap_ratio = len(common_words) / min(len(words1), len(words2))
+            if overlap_ratio > 0.3:  # 30% общих слов = связанные
+                return True
+        
+        # Если второе продолжает мысль (вопрос после утверждения, ответ на вопрос)
         if msg1.endswith('.') and msg2.endswith('?'):
+            return True
+        if msg1.endswith('?') and not msg2.endswith('?'):
+            return True
+        
+        # Если содержат вопросительные/ответные паттерны
+        question_patterns = ['что', 'как', 'где', 'когда', 'почему', 'зачем', 'кто']
+        answer_patterns = ['потому что', 'из-за', 'благодаря', 'например', 'то есть']
+        
+        has_question = any(pattern in msg1_lower for pattern in question_patterns)
+        has_answer = any(pattern in msg2_lower for pattern in answer_patterns)
+        
+        if has_question and has_answer:
+            return True
+        
+        # Эмоциональная связность (реакции)
+        if ('?' in msg1 or '!' in msg1) and any(word in msg2_lower for word in ['хм', 'ну', 'да', 'нет', 'может']):
             return True
         
         return False

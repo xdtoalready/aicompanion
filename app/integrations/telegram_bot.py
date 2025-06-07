@@ -154,6 +154,62 @@ class TelegramCompanion(RealisticAICompanion):
         
         await update.message.reply_text(stats_text)
     
+    async def speed_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """НОВАЯ команда: Управление скоростью печатания"""
+        if not self.commands_enabled:
+            return
+        
+        args = context.args
+        
+        if not args:
+            # Показываем текущий режим и доступные опции
+            current_mode = self.typing_simulator.current_mode
+            
+            text = f"""⚡ Управление скоростью печатания:
+
+🔧 Текущий режим: **{current_mode}**
+
+📋 Доступные режимы:
+• `lightning` - Мгновенные ответы (200 слов/мин)
+• `fast` - Быстрые ответы (100 слов/мин) 
+• `normal` - Обычные ответы (60 слов/мин)
+• `slow` - Медленные ответы (40 слов/мин)
+
+💡 Использование: `/speed <режим>`
+Пример: `/speed lightning`"""
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            return
+        
+        # Устанавливаем новый режим
+        new_mode = args[0].lower()
+        
+        if new_mode in self.typing_simulator.speed_modes:
+            old_mode = self.typing_simulator.current_mode
+            self.typing_simulator.set_speed_mode(new_mode)
+            
+            # Демонстрируем новый режим сразу
+            demo_messages = [
+                f"Переключилась с режима '{old_mode}' на '{new_mode}'! ⚡",
+                "Вот так теперь я печатаю сообщения.",
+                "Заметил разницу? 😊"
+            ]
+            
+            current_state = await self.optimized_ai.get_simple_mood_calculation(
+                self.psychological_core
+            )
+            
+            await self.send_telegram_messages_with_timing(
+                chat_id=update.effective_chat.id,
+                messages=demo_messages,
+                current_state=current_state
+            )
+        else:
+            await update.message.reply_text(
+                f"❌ Неизвестный режим '{new_mode}'\n"
+                f"Доступные: {', '.join(self.typing_simulator.speed_modes.keys())}"
+            )
+    
     async def mood_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Подробная информация о настроении"""
         if not self.commands_enabled:

@@ -33,8 +33,13 @@ class RealisticAICompanion:
         
         self.optimized_ai = OptimizedAI(self.ai_client, config)
         
-        # НОВОЕ: Система печатания
-        self.typing_simulator = TypingSimulator(config)
+        # НОВОЕ: Система печатания с настройками из конфига
+        typing_config = config.get('typing', {})
+        self.typing_simulator = TypingSimulator({
+            'typing_mode': typing_config.get('mode', 'fast'),
+            'show_typing_indicator': typing_config.get('show_typing_indicator', True),
+            'natural_pauses': typing_config.get('natural_pauses', True)
+        })
         self.typing_indicator = TypingIndicator()
         
         # Планировщик
@@ -217,10 +222,23 @@ class RealisticAICompanion:
     async def deliver_messages_with_timing(self, messages: List[str], 
                                          current_state: Dict[str, Any],
                                          message_type: str = "response"):
-        """Доставка сообщений с реалистичным печатанием"""
+        """Доставка сообщений с реалистичным печатанием и адаптивной скоростью"""
         
         emotional_state = current_state.get('dominant_emotion', 'calm')
         energy_level = current_state.get('energy_level', 50)
+        
+        # НОВОЕ: Адаптивная скорость печатания в зависимости от состояния
+        mood = current_state.get('current_mood', 'нормальное')
+        if 'возбужден' in emotional_state or 'excited' in emotional_state:
+            self.typing_simulator.set_speed_mode('fast')
+        elif energy_level < 30 or 'tired' in emotional_state:
+            self.typing_simulator.set_speed_mode('normal')
+        elif 'anxious' in emotional_state or 'sad' in emotional_state:
+            self.typing_simulator.set_speed_mode('normal')
+        else:
+            # Возвращаем к режиму по умолчанию из конфига
+            default_mode = self.config.get('typing', {}).get('mode', 'fast')
+            self.typing_simulator.set_speed_mode(default_mode)
         
         # Создаем callback'и для системы печатания
         async def send_callback(msg):
@@ -233,11 +251,12 @@ class RealisticAICompanion:
             else:
                 self.logger.debug("Скрываем 'печатает...'")
         
-        # Показываем сводку времени (для отладки)
-        timing_summary = self.typing_simulator.get_realistic_delays_summary(
-            messages, emotional_state, energy_level
-        )
-        self.logger.info(f"Планируемое время отправки: {timing_summary['total_time']}с")
+        # Показываем сводку времени (если включено в логах)
+        if self.config.get('logging', {}).get('log_typing_timings', False):
+            timing_summary = self.typing_simulator.get_realistic_delays_summary(
+                messages, emotional_state, energy_level
+            )
+            self.logger.info(f"Планируемое время отправки: {timing_summary['total_time']}с, режим: {self.typing_simulator.current_mode}")
         
         # Отправляем с реалистичными паузами
         await self.typing_simulator.send_messages_with_realistic_timing(
