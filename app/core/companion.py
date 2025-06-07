@@ -1,5 +1,5 @@
 # Основной модуль AI-компаньона с многосообщенческими ответами
-
+import sys
 import asyncio
 import json
 import logging
@@ -15,48 +15,57 @@ from .memory import AdvancedMemorySystem
 from .ai_client import OptimizedAI
 from .typing_simulator import TypingSimulator, TypingIndicator
 
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+from ..database.memory_manager import EnhancedMemorySystem
+
 class RealisticAICompanion:
     """Реалистичный AI-компаньон с многосообщенческими ответами"""
     
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        
-        # Инициализация компонентов
-        self.psychological_core = PsychologicalCore()
-        self.memory_system = AdvancedMemorySystem()
-        
-        # AI клиент
-        self.ai_client = AsyncOpenAI(
-            api_key=config['ai']['openrouter_api_key'],
-            base_url="https://openrouter.ai/api/v1"
-        )
-        
-        self.optimized_ai = OptimizedAI(self.ai_client, config)
-        
-        # НОВОЕ: Система печатания с настройками из конфига
-        typing_config = config.get('typing', {})
-        self.typing_simulator = TypingSimulator({
-            'typing_mode': typing_config.get('mode', 'fast'),
-            'show_typing_indicator': typing_config.get('show_typing_indicator', True),
-            'natural_pauses': typing_config.get('natural_pauses', True)
-        })
-        self.typing_indicator = TypingIndicator()
-        
-        # Планировщик
-        self.scheduler = AsyncIOScheduler()
-        
-        # Состояние
-        self.last_message_time = None
-        self.daily_message_count = 0
-        self.conversation_history = []
-        
-        # Флаг для отключения команд (будет использоваться позже)
-        self.commands_enabled = True  # TODO: установить в False после тестирования
-        
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-        
-        self.setup_realistic_scheduler()
+def __init__(self, config: Dict[str, Any]):
+    self.config = config
+    
+    # Инициализация компонентов
+    self.psychological_core = PsychologicalCore()
+    
+    # НОВОЕ: Используем базу данных для памяти
+    db_path = config.get('database', {}).get('path', 'data/companion.db')
+    self.enhanced_memory = EnhancedMemorySystem(db_path)
+    
+    # Оставляем старую систему для совместимости
+    self.memory_system = AdvancedMemorySystem()
+    
+    # AI клиент
+    self.ai_client = AsyncOpenAI(
+        api_key=config['ai']['openrouter_api_key'],
+        base_url="https://openrouter.ai/api/v1"
+    )
+    
+    self.optimized_ai = OptimizedAI(self.ai_client, config)
+    
+    # Система печатания
+    typing_config = config.get('typing', {})
+    self.typing_simulator = TypingSimulator({
+        'typing_mode': typing_config.get('mode', 'fast'),
+        'show_typing_indicator': typing_config.get('show_typing_indicator', True),
+        'natural_pauses': typing_config.get('natural_pauses', True)
+    })
+    self.typing_indicator = TypingIndicator()
+    
+    # Планировщик
+    self.scheduler = AsyncIOScheduler()
+    
+    # Состояние
+    self.last_message_time = None
+    self.daily_message_count = 0
+    self.conversation_history = []
+    
+    self.commands_enabled = True
+    
+    logging.basicConfig(level=logging.INFO)
+    self.logger = logging.getLogger(__name__)
+    
+    self.setup_realistic_scheduler()
     
     def setup_realistic_scheduler(self):
         """Настройка реалистичного планировщика"""
@@ -153,71 +162,104 @@ class RealisticAICompanion:
         threshold = 6 - (initiative_desire * 0.3)
         return random.random() > (threshold / 10)
     
-    async def send_initiative_messages(self, current_state: Dict):
-        """Отправка инициативных сообщений с реалистичным печатанием"""
-        
-        # Получаем релевантные воспоминания
-        recent_memories = self.memory_system.get_relevant_memories("пользователь общение", 3)
-        
-        # Добавляем контекст памяти в состояние
-        memory_context = "\n".join([m["content"] for m in recent_memories])
-        current_state['memory_context'] = memory_context if memory_context else 'Еще мало знаешь о пользователе'
-        
-        try:
-            # НОВОЕ: Генерируем множественные сообщения
-            messages = await self.optimized_ai.generate_split_response(
-                "Хочу написать пользователю что-то интересное", 
-                current_state
-            )
-            
-            # Отправляем сообщения с реалистичными паузами
-            await self.deliver_messages_with_timing(
-                messages, 
-                current_state, 
-                message_type="initiative"
-            )
-            
-            # Обновляем состояние
-            self.psychological_core.update_emotional_state("positive_interaction", 0.5)
-            self.last_message_time = datetime.now()
-            
-            self.logger.info(f"Инициативные сообщения отправлены: {len(messages)} шт.")
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка генерации инициативы: {e}")
+async def send_initiative_messages(self, current_state: Dict):
+    """Отправка инициативных сообщений с БД контекстом"""
     
-    async def process_user_message(self, message: str) -> List[str]:
-        """Обработка сообщения пользователя с многосообщенческим ответом"""
+    # НОВОЕ: Получаем контекст из базы данных
+    db_context = self.enhanced_memory.get_context_for_response("инициативное общение")
+    current_state['memory_context'] = db_context
+    
+    try:
+        # Генерируем множественные сообщения
+        messages = await self.optimized_ai.generate_split_response(
+            "Хочу написать пользователю что-то интересное", 
+            current_state
+        )
         
-        try:
-            # Обновляем эмоциональное состояние от получения сообщения
-            self.psychological_core.update_emotional_state("positive_interaction", 1.0)
-            
-            # Получаем текущее состояние
-            current_state = await self.optimized_ai.get_simple_mood_calculation(
-                self.psychological_core
-            )
-            
-            # Получаем релевантные воспоминания
-            relevant_memories = self.memory_system.get_relevant_memories(message, 4)
-            memory_context = "\n".join([f"- {m['content']}" for m in relevant_memories])
-            
-            # Добавляем контекст воспоминаний
-            current_state['memory_context'] = memory_context if memory_context else 'Новое знакомство'
-            
-            # НОВОЕ: Генерируем множественные сообщения-ответы
-            ai_messages = await self.optimized_ai.generate_split_response(message, current_state)
-            
-            # Сохраняем диалог и извлекаем факты
-            await self.save_conversation(message, ai_messages)
-            await self.extract_memories(message, ai_messages)
-            
-            self.last_message_time = datetime.now()
-            return ai_messages
-            
-        except Exception as e:
-            self.logger.error(f"Ошибка обработки сообщения: {e}")
-            return ["Извини, что-то пошло не так... 😅"]
+        # Доставляем сообщения
+        await self.deliver_messages_with_timing(
+            messages, 
+            current_state, 
+            message_type="initiative"
+        )
+        
+        # Сохраняем в БД как инициативный диалог
+        mood_current = current_state.get('dominant_emotion', 'calm')
+        self.enhanced_memory.add_conversation(
+            "[ИНИЦИАТИВА]", messages, mood_current, mood_current
+        )
+        
+        # Обновляем состояние
+        self.psychological_core.update_emotional_state("positive_interaction", 0.5)
+        self.last_message_time = datetime.now()
+        
+        self.logger.info(f"Инициативные сообщения отправлены: {len(messages)} шт.")
+        
+    except Exception as e:
+        self.logger.error(f"Ошибка генерации инициативы: {e}")
+    
+# Добавляем новый метод для получения статистики БД:
+def get_database_stats(self) -> Dict[str, Any]:
+    """Статистика базы данных"""
+    try:
+        summary = self.enhanced_memory.get_conversation_summary()
+        return {
+            "database_enabled": True,
+            "recent_conversations": summary['recent_conversations'],
+            "total_memories": summary['total_memories'],
+            "last_conversation": summary['last_conversation']
+        }
+    except Exception as e:
+        self.logger.error(f"Ошибка получения статистики БД: {e}")
+        return {
+            "database_enabled": False,
+            "error": str(e)
+        }
+
+async def process_user_message(self, message: str) -> List[str]:
+    """Обработка сообщения пользователя с БД контекстом"""
+    
+    try:
+        # Получаем настроение ДО обработки
+        mood_before = self.psychological_core.emotional_momentum["current_emotion"]
+        
+        # Обновляем эмоциональное состояние от получения сообщения
+        self.psychological_core.update_emotional_state("positive_interaction", 1.0)
+        
+        # Получаем текущее состояние
+        current_state = await self.optimized_ai.get_simple_mood_calculation(
+            self.psychological_core
+        )
+        
+        # НОВОЕ: Получаем контекст из базы данных
+        db_context = self.enhanced_memory.get_context_for_response(message)
+        current_state['memory_context'] = db_context
+        
+        # Логируем контекст для отладки
+        self.logger.info(f"Контекст из БД: {db_context[:100]}...")
+        
+        # Генерируем ответ с контекстом
+        ai_messages = await self.optimized_ai.generate_split_response(message, current_state)
+        
+        # Получаем настроение ПОСЛЕ обработки
+        mood_after = self.psychological_core.emotional_momentum["current_emotion"]
+        
+        # НОВОЕ: Сохраняем диалог в базу данных
+        conversation_id = self.enhanced_memory.add_conversation(
+            message, ai_messages, mood_before, mood_after
+        )
+        
+        self.logger.info(f"Диалог сохранен в БД с ID: {conversation_id}")
+        
+        # Сохраняем также в локальную историю для совместимости
+        await self.save_conversation(message, ai_messages)
+        
+        self.last_message_time = datetime.now()
+        return ai_messages
+        
+    except Exception as e:
+        self.logger.error(f"Ошибка обработки сообщения: {e}")
+        return ["Извини, что-то пошло не так... 😅 Попробуй еще раз!"]
     
     async def deliver_messages_with_timing(self, messages: List[str], 
                                          current_state: Dict[str, Any],

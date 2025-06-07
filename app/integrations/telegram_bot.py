@@ -48,14 +48,58 @@ class TelegramCompanion(RealisticAICompanion):
             self.app.add_handler(CommandHandler("status", self.status_command))
             self.app.add_handler(CommandHandler("mood", self.mood_command))
             self.app.add_handler(CommandHandler("memories", self.memories_command))
-            self.app.add_handler(CommandHandler("stats", self.stats_command))  # НОВАЯ команда
-        
+            self.app.add_handler(CommandHandler("stats", self.stats_command))
+            self.app.add_handler(CommandHandler("dbcheck", self.dbcheck_command))        
+
         # Обработка текстовых сообщений
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         
         # Обработка ошибок
         self.app.add_error_handler(self.error_handler)
     
+# Добавляем новый метод:
+async def dbcheck_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Проверка состояния базы данных"""
+    if not self.commands_enabled:
+        return
+        
+    try:
+        # Получаем статистику БД
+        db_stats = self.get_database_stats()
+        
+        if db_stats.get("database_enabled"):
+            status_text = f"""🗄️ Статус базы данных:
+
+✅ База данных: Активна
+💬 Недавних диалогов: {db_stats['recent_conversations']}
+🧠 Воспоминаний: {db_stats['total_memories']}
+🕒 Последний диалог: {db_stats.get('last_conversation', 'Нет')}
+
+📋 Контекст работает: Да
+💾 Память сохраняется: Да"""
+        else:
+            status_text = f"""❌ Проблема с базой данных:
+
+{db_stats.get('error', 'Неизвестная ошибка')}
+
+🔧 Рекомендации:
+1. Проверьте что файл companion.db существует
+2. Запустите: python scripts/setup_db.py
+3. Перезапустите бота"""
+    
+        # Также проверяем последний контекст
+        if hasattr(self, 'enhanced_memory'):
+            test_context = self.enhanced_memory.get_context_for_response("тест")
+            if test_context and test_context != "Новое знакомство":
+                status_text += f"\n\n🔍 Пример контекста:\n{test_context[:150]}..."
+            else:
+                status_text += "\n\n⚠️ Контекст пустой (нормально для первого запуска)"
+                
+    except Exception as e:
+        status_text = f"❌ Ошибка проверки БД: {e}"
+    
+    await update.message.reply_text(status_text, parse_mode='Markdown')
+
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка команды /start"""
         user_id = update.effective_user.id
@@ -234,24 +278,34 @@ class TelegramCompanion(RealisticAICompanion):
         
         await update.message.reply_text(mood_text)
     
-    async def memories_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показать воспоминания о пользователе"""
-        if not self.commands_enabled:
-            return
-            
-        user_memories = self.memory_system.get_relevant_memories("пользователь", 5)
+async def memories_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать воспоминания о пользователе из БД"""
+    if not self.commands_enabled:
+        return
+        
+    try:
+        # Используем новую систему памяти
+        user_memories = self.enhanced_memory.db_manager.get_relevant_memories("пользователь", 5)
         
         if not user_memories:
             memories_text = "🤔 Пока я мало что знаю о тебе... Давай поговорим больше!"
         else:
-            memories_text = "🧠 Что я помню о тебе:\n\n"
+            memories_text = "🧠 Что я помню о тебе (из базы данных):\n\n"
             for i, memory in enumerate(user_memories, 1):
                 importance_stars = "⭐" * min(memory['importance'], 5)
                 memories_text += f"{i}. {memory['content']} {importance_stars}\n"
             
-            memories_text += f"\n💭 Всего воспоминаний: {len(self.memory_system.memories)}"
-        
-        await update.message.reply_text(memories_text)
+            memories_text += f"\n💭 Всего воспоминаний: {len(user_memories)}"
+            
+            # Добавляем информацию о недавних диалогах
+            recent_convs = self.enhanced_memory.db_manager.get_recent_conversations(3)
+            if recent_convs:
+                memories_text += f"\n📝 Недавних диалогов: {len(recent_convs)}"
+    
+    except Exception as e:
+        memories_text = f"❌ Ошибка получения воспоминаний: {e}\n\nПроверьте базу данных командой /dbcheck"
+    
+    await update.message.reply_text(memories_text)
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка текстовых сообщений с многосообщенческими ответами"""

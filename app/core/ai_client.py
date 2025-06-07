@@ -25,86 +25,182 @@ class OptimizedAI:
         
         logging.info(f"AI клиент инициализирован: модель={self.model}, max_tokens={self.max_tokens}")
     
-    async def generate_split_response(self, user_message: str, context: Dict[str, Any]) -> List[str]:
-        """Генерация ответа, готового к разделению на сообщения (по алгоритму DeepSeek)"""
-        
-        # Строим динамический system prompt
-        system_prompt = self._build_split_system_prompt(context)
-        
-        # Создаем кэш ключ
-        cache_key = f"{user_message[:50]}_{context.get('current_mood', '')}_split"
-        
-        if cache_key in self.cached_responses:
-            cached = self.cached_responses[cache_key]
-            logging.info("Использован кэшированный многосообщенческий ответ")
-            return self._add_message_variations(cached)
-        
-        try:
-            logging.info(f"Отправка split-запроса к модели {self.model}")
-            response = await self.ai_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                top_p=0.95,  # Рекомендация DeepSeek
-                stop=["\n\n", "|||"]  # Двойной стоп-символ для защиты
-            )
-            
-            raw_response = response.choices[0].message.content.strip()
-            logging.info(f"Получен raw ответ: {raw_response[:100]}...")
-            
-            # Обрабатываем ответ
-            messages = self._process_raw_response(raw_response)
-            
-            # Кэшируем результат
-            self.cached_responses[cache_key] = messages
-            
-            return messages
-            
-        except Exception as e:
-            logging.error(f"Ошибка генерации split-ответа: {e}")
-            return self._get_fallback_split_response(context, user_message)
+async def generate_split_response(self, user_message: str, context: Dict[str, Any]) -> List[str]:
+    """Генерация ответа с учетом типа вопроса"""
     
-    def _build_split_system_prompt(self, context: Dict[str, Any]) -> str:
-        """Строит system prompt для многосообщенческих ответов"""
+    # Анализируем тип вопроса
+    question_type = self._analyze_question_type(user_message)
+    context['question_type'] = question_type
+    
+    # Логируем для отладки
+    logging.info(f"Тип вопроса: {question_type}, сообщение: {user_message[:50]}...")
+    
+    # Строим промпт с учетом типа
+    system_prompt = self._build_split_system_prompt(context)
+    
+    # Дополняем промпт инструкциями для конкретного типа вопроса
+    if question_type == "opinion_question":
+        user_message += " [ВАЖНО: Дай свое конкретное мнение с аргументами]"
+    elif question_type == "comparison_question":
+        user_message += " [ВАЖНО: Сравни и скажи что лучше и почему]"
+    elif question_type == "preference_question":
+        user_message += " [ВАЖНО: Назови конкретные предпочтения]"
+    elif question_type == "direct_question":
+        user_message += " [ВАЖНО: Дай прямой ответ на вопрос]"
+    
+    # Создаем кэш ключ
+    cache_key = f"{user_message[:50]}_{context.get('current_mood', '')}_split"
+    
+    if cache_key in self.cached_responses:
+        cached = self.cached_responses[cache_key]
+        logging.info("Использован кэшированный ответ")
+        return self._add_message_variations(cached)
+    
+    try:
+        logging.info(f"Отправка запроса к модели {self.model}")
+        response = await self.ai_client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            top_p=0.95,
+            stop=["\n\n"]
+        )
         
-        character_name = self.config.get('character', {}).get('name', 'Алиса')
-        personality = context.get('personality_description', 'дружелюбная и эмоциональная')
-        current_time = datetime.now().strftime('%H:%M, %A')
+        raw_response = response.choices[0].message.content.strip()
+        logging.info(f"Получен ответ: {raw_response[:100]}...")
         
-        system_prompt = f"""Ты — {character_name}, {personality}. 
-Сейчас: {current_time}
-Твое состояние: {context.get('current_mood', 'спокойная')}, {context.get('energy_level', 50)}% энергии
+        # Обрабатываем ответ
+        messages = self._process_raw_response(raw_response)
+        
+        # Проверяем что ответ соответствует вопросу
+        if question_type in ["opinion_question", "comparison_question", "preference_question", "direct_question"]:
+            messages = self._ensure_question_answered(messages, user_message, question_type)
+        
+        # Кэшируем результат
+        self.cached_responses[cache_key] = messages
+        
+        return messages
+        
+    except Exception as e:
+        logging.error(f"Ошибка генерации ответа: {e}")
+        return self._get_fallback_split_response(context, user_message)
+    
+def _ensure_question_answered(self, messages: List[str], original_question: str, question_type: str) -> List[str]:
+    """Проверяет что ответ содержит конкретный ответ на вопрос"""
+    
+    # Объединяем все сообщения для анализа
+    full_response = " ".join(messages).lower()
+    
+    # Проверяем наличие конкретного ответа
+    has_concrete_answer = False
+    
+    if question_type == "opinion_question":
+        opinion_indicators = ["думаю что", "считаю", "мое мнение", "по-моему", "лично я"]
+        has_concrete_answer = any(indicator in full_response for indicator in opinion_indicators)
+    
+    elif question_type == "comparison_question":
+        comparison_indicators = ["лучше", "хуже", "предпочитаю", "больше нравится", "качественнее"]
+        has_concrete_answer = any(indicator in full_response for indicator in comparison_indicators)
+    
+    elif question_type in ["preference_question", "direct_question"]:
+        # Проверяем что есть конкретные слова из вопроса в ответе
+        question_words = set(original_question.lower().split())
+        response_words = set(full_response.split())
+        overlap = len(question_words.intersection(response_words))
+        has_concrete_answer = overlap >= 2  # минимум 2 общих слова
+    
+    # Если ответ слишком абстрактный, добавляем конкретность
+    if not has_concrete_answer:
+        logging.warning(f"Ответ не содержит конкретного ответа на вопрос типа {question_type}")
+        
+        # Добавляем более конкретное сообщение
+        if len(messages) >= 2:
+            messages[1] = self._make_more_concrete(messages[1], question_type, original_question)
+    
+    return messages
+
+def _make_more_concrete(self, message: str, question_type: str, original_question: str) -> str:
+    """Делает сообщение более конкретным"""
+    
+    if question_type == "comparison_question" and any(word in original_question.lower() for word in ["манга", "адаптация"]):
+        return "Манга определенно лучше! В ней больше деталей и времени на развитие сюжета."
+    
+    elif question_type == "opinion_question":
+        return f"Мое мнение: {message}"
+    
+    elif "какой" in original_question.lower() or "какая" in original_question.lower():
+        return f"Конкретно отвечая на твой вопрос: {message}"
+    
+    return message
+
+def _build_split_system_prompt(self, context: Dict[str, Any]) -> str:
+    """Строит system prompt для многосообщенческих ответов"""
+    
+    character_name = self.config.get('character', {}).get('name', 'Алиса')
+    personality = context.get('personality_description', 'дружелюбная и эмоциональная')
+    current_time = datetime.now().strftime('%H:%M, %A')
+    memory_context = context.get('memory_context', 'Новое знакомство')
+    
+    system_prompt = f"""Ты — {character_name}, {personality} девушка 25 лет, любящая аниме и мангу. 
+Время: {current_time}
+Состояние: {context.get('current_mood', 'спокойная')}, энергия {context.get('energy_level', 50)}%
 Эмоция: {context.get('dominant_emotion', 'calm')}
-Недавние воспоминания: {context.get('memory_context', 'Общаемся недавно')}
 
-Отвечай по правилам:
-1. Разделяй ответ на 2-4 самостоятельных сообщения через ||
-2. Каждое сообщение: 7-25 слов, заканчивай естественно (.?!) 
-3. Первое сообщение — эмоциональная реакция
-4. Последнее — вопрос или призыв к действию
-5. Используй живую речь с междометиями и эмодзи
-6. Учитывай время суток: {self._get_time_based_rules()}
+КОНТЕКСТ ОТНОШЕНИЙ:
+{memory_context}
 
-Стиль общения: естественный, как живой человек без формальностей."""
-        
-        return system_prompt
+КРИТИЧЕСКИ ВАЖНО - ПРАВИЛА ОТВЕТОВ:
+1. 🎯 ВСЕГДА отвечай КОНКРЕТНО на заданный вопрос в первых сообщениях
+2. 📝 Разделяй ответ на 2-4 сообщения через ||
+3. 💭 Первое сообщение = эмоциональная реакция + начало ответа на вопрос
+4. 🎨 Второе сообщение = основной ответ на вопрос с деталями
+5. 🤔 Третье сообщение = дополнение или пример
+6. ❓ Последнее сообщение = встречный вопрос или продолжение темы
+
+КОНКРЕТНЫЕ ПРИМЕРЫ:
+Вопрос: "Что думаешь об адаптации vs манга?"
+ПРАВИЛЬНО: "Ох, вечная дилемма! 😄 || Честно говоря, манга почти всегда лучше адаптации. || В ней больше деталей, эмоций и времени на развитие персонажей. || А какие адаптации тебе понравились больше оригинала?"
+
+НЕПРАВИЛЬНО: "Ох, я в таких приятных раздумьях! || Мысли такие солнечные..."
+
+ЗАПРЕЩЕНО:
+- Уходить от темы вопроса
+- Говорить только о настроении
+- Давать абстрактные ответы
+- Игнорировать суть вопроса
+
+Стиль: живой, эмоциональный, с эмодзи, НО обязательно по теме вопроса."""
     
-    def _get_time_based_rules(self) -> str:
-        """Возвращает правила в зависимости от времени суток"""
-        hour = datetime.now().hour
-        
-        if hour < 6:
-            return "Ночной режим: больше 😴, меньше слов, сонливость"
-        elif hour < 12:
-            return "Утро: бодро, с эмодзи ☕️🌞, энергично"
-        elif hour < 18:
-            return "День: активно, с вопросами, деловито"
-        else:
-            return "Вечер: эмоционально, с личными темами 🌙, расслабленно"
+    return system_prompt
+
+# Также добавляем метод для анализа типа вопроса:
+def _analyze_question_type(self, user_message: str) -> str:
+    """Анализирует тип вопроса пользователя"""
+    
+    message_lower = user_message.lower()
+    
+    # Прямые вопросы
+    if any(word in message_lower for word in ["что думаешь", "как считаешь", "твое мнение"]):
+        return "opinion_question"
+    
+    # Сравнительные вопросы  
+    if any(word in message_lower for word in ["лучше", "хуже", "vs", "или", "сравни"]):
+        return "comparison_question"
+    
+    # Вопросы о предпочтениях
+    if any(word in message_lower for word in ["какой", "какая", "какие", "что предпочитаешь"]):
+        return "preference_question"
+    
+    # Вопросы с "?" 
+    if "?" in user_message:
+        return "direct_question"
+    
+    # Обычное сообщение
+    return "statement"
     
     def _process_raw_response(self, text: str) -> List[str]:
         """Преобразование сырого ответа в список сообщений"""
