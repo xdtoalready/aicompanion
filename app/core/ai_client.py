@@ -9,12 +9,20 @@ from typing import List, Tuple, Dict, Any
 class OptimizedAI:
     """Оптимизированная система запросов к AI"""
     
-    def __init__(self, ai_client):
-        self.ai_client = ai_client
+    def __init__(self, ai_client, config: Dict[str, Any]):  # ← Добавлен config
+        self.ai_client = ai_client  
+        self.config = config  # ← Сохраняем конфиг
         self.prompt_cache = {}
         self.batch_queue = []
         self.last_state_check = None
         self.cached_responses = {}
+        
+        # Получаем настройки AI из конфига
+        self.model = config.get('ai', {}).get('model', 'deepseek/deepseek-chat')
+        self.max_tokens = config.get('ai', {}).get('max_tokens', 300)
+        self.temperature = config.get('ai', {}).get('temperature', 0.8)
+        
+        logging.info(f"AI клиент инициализирован: модель={self.model}, max_tokens={self.max_tokens}")
     
     async def get_batched_response(self, prompts: List[Tuple[str, str]]) -> Dict[str, Any]:
         """Пакетная обработка нескольких запросов"""
@@ -33,11 +41,12 @@ class OptimizedAI:
 }"""
         
         try:
+            logging.info(f"Отправка пакетного запроса к модели {self.model}")
             response = await self.ai_client.chat.completions.create(
-                model="deepseek/deepseek-chat",
+                model=self.model,  # ← Используем модель из конфига
                 messages=[{"role": "user", "content": combined_prompt}],
-                max_tokens=800,
-                temperature=0.8
+                max_tokens=self.max_tokens,
+                temperature=self.temperature
             )
             
             return json.loads(response.choices[0].message.content)
@@ -89,20 +98,23 @@ class OptimizedAI:
         if cache_key in self.cached_responses:
             # Возвращаем кэшированный ответ с небольшими вариациями
             cached = self.cached_responses[cache_key]
+            logging.info("Использован кэшированный ответ")
             return self._add_variation(cached)
         
         # Создаем оптимизированный промпт
         prompt = self._build_optimized_prompt(user_message, context)
         
         try:
+            logging.info(f"Отправка запроса к модели {self.model} для сообщения: {user_message[:50]}...")
             response = await self.ai_client.chat.completions.create(
-                model="deepseek/deepseek-chat",
+                model=self.model,  # ← Используем модель из конфига
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=200,
-                temperature=0.8
+                max_tokens=self.max_tokens,
+                temperature=self.temperature
             )
             
             ai_response = response.choices[0].message.content.strip()
+            logging.info(f"Получен ответ от AI: {ai_response[:100]}...")
             
             # Кэшируем ответ
             self.cached_responses[cache_key] = ai_response
@@ -111,18 +123,27 @@ class OptimizedAI:
             
         except Exception as e:
             logging.error(f"Ошибка генерации ответа: {e}")
+            logging.error(f"Используется fallback ответ")
             return self._get_fallback_response(context)
     
     def _build_optimized_prompt(self, user_message: str, context: Dict[str, Any]) -> str:
         """Строит оптимизированный промпт"""
         
-        prompt = f"""Ты отвечаешь как живой человек.
+        memory_context = context.get('memory_context', 'Новое знакомство')
+        
+        prompt = f"""Ты отвечаешь как живой человек - девушка по имени Алиса.
 
-СОСТОЯНИЕ: {context.get('current_mood', 'спокойная')}, энергия {context.get('energy_level', 50)}/100
+ТВОЕ СОСТОЯНИЕ: {context.get('current_mood', 'спокойная')}, энергия {context.get('energy_level', 50)}/100
 ЭМОЦИЯ: {context.get('dominant_emotion', 'calm')}
-СООБЩЕНИЕ: "{user_message}"
 
-Ответь естественно, 1-2 предложения:"""
+ВОСПОМИНАНИЯ О ПОЛЬЗОВАТЕЛЕ:
+{memory_context}
+
+СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: "{user_message}"
+
+Ответь естественно, живо и эмоционально, учитывая наши прошлые разговоры. 1-2 предложения.
+
+ОТВЕТ:"""
         
         return prompt
     

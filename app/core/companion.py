@@ -6,7 +6,7 @@ import logging
 import random
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
-import openai
+from openai import AsyncOpenAI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -24,13 +24,14 @@ class RealisticAICompanion:
         self.psychological_core = PsychologicalCore()
         self.memory_system = AdvancedMemorySystem()
         
-        # AI клиент
-        self.ai_client = openai.OpenAI(
+        # AI клиент - ИСПРАВЛЕНО: используем AsyncOpenAI
+        self.ai_client = AsyncOpenAI(
             api_key=config['ai']['openrouter_api_key'],
             base_url="https://openrouter.ai/api/v1"
         )
         
-        self.optimized_ai = OptimizedAI(self.ai_client)
+        # ИСПРАВЛЕНО: передаем config в OptimizedAI
+        self.optimized_ai = OptimizedAI(self.ai_client, config)
         
         # Планировщик
         self.scheduler = AsyncIOScheduler()
@@ -147,7 +148,7 @@ class RealisticAICompanion:
         # Генерируем сообщение через AI
         memory_context = "\n".join([m["content"] for m in recent_memories])
         
-        prompt = f"""Ты живой человек, который хочет написать пользователю.
+        prompt = f"""Ты живой человек по имени Алиса, который хочет написать пользователю.
 
 ТВОЕ СОСТОЯНИЕ:
 Настроение: {current_state['current_mood']}
@@ -166,11 +167,12 @@ class RealisticAICompanion:
 СООБЩЕНИЕ:"""
 
         try:
+            # ИСПРАВЛЕНО: используем настройки из конфига
             response = await self.ai_client.chat.completions.create(
-                model="deepseek/deepseek-chat",
+                model=self.config['ai']['model'],
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=150,
-                temperature=0.9
+                max_tokens=self.config['ai']['max_tokens'],
+                temperature=self.config['ai']['temperature']
             )
             
             message = response.choices[0].message.content.strip()
@@ -203,32 +205,11 @@ class RealisticAICompanion:
             relevant_memories = self.memory_system.get_relevant_memories(message, 4)
             memory_context = "\n".join([f"- {m['content']}" for m in relevant_memories])
             
-            # Генерируем ответ
-            prompt = f"""Ты отвечаешь на сообщение как живой человек.
-
-ТВОЕ СОСТОЯНИЕ:
-Настроение: {current_state['current_mood']}
-Энергия: {current_state['energy_level']}/100
-Эмоция: {current_state['dominant_emotion']}
-
-ВОСПОМИНАНИЯ:
-{memory_context if memory_context else 'Новое знакомство'}
-
-СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: "{message}"
-
-Отвечай естественно, эмоционально, учитывая свое состояние.
-Длина: 1-3 предложения.
-
-ОТВЕТ:"""
-
-            response = await self.ai_client.chat.completions.create(
-                model="deepseek/deepseek-chat",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=200,
-                temperature=0.8
-            )
+            # Добавляем контекст воспоминаний
+            current_state['memory_context'] = memory_context if memory_context else 'Новое знакомство'
             
-            ai_response = response.choices[0].message.content.strip()
+            # ИСПРАВЛЕНО: используем правильный метод для генерации ответа
+            ai_response = await self.optimized_ai.generate_contextual_response(message, current_state)
             
             # Сохраняем диалог и извлекаем факты
             await self.save_conversation(message, ai_response)
@@ -268,7 +249,6 @@ class RealisticAICompanion:
     
     async def generate_life_event(self):
         """Генерация жизненного события"""
-        import random
         
         # Локальная генерация простых событий (экономия токенов)
         current_hour = datetime.now().hour
