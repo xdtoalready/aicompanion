@@ -22,7 +22,7 @@ from .memory import AdvancedMemorySystem
 from .ai_client import OptimizedAI
 from .typing_simulator import TypingSimulator, TypingIndicator
 
-# Консолидация памяти
+# Импорт консолидации памяти
 from .memory_consolidation import EmotionalMemoryConsolidator, enhance_existing_memories_with_emotions
 
 # Абсолютный импорт для database (так как sys.path добавлен)
@@ -151,7 +151,7 @@ class RealisticAICompanion:
         """Запуск автоматической консолидации памяти"""
         try:
             self.logger.info("🧠 Запуск консолидации памяти...")
-            await self.memory_consolidator.run_consolidation_cycle()
+            await self.emotional_memory_consolidator.run_emotional_consolidation_cycle()
         except Exception as e:
             self.logger.error(f"Ошибка консолидации памяти: {e}")
 
@@ -159,7 +159,7 @@ class RealisticAICompanion:
         """Глубокая консолидация и анализ воспоминаний"""
         try:
             # Обычная консолидация
-            await self.memory_consolidator.run_consolidation_cycle()
+            await self.emotional_memory_consolidator.run_emotional_consolidation_cycle()
             
             # Дополнительный анализ паттернов
             await self._analyze_memory_patterns()
