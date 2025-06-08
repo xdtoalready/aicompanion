@@ -51,6 +51,8 @@ logs/
 
 # Конфигурация (содержит секреты)
 config/config.json
+config/config/current_character.json
+config/config/relationship_history.json
 .env
 .env.local
 .env.production
