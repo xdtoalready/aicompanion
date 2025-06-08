@@ -41,7 +41,7 @@ class TypingSimulator:
         }
         
         # Устанавливаем режим по умолчанию
-        self.current_mode = config.get('typing_mode', 'fast')
+        self.current_mode = self.config.get('typing_mode', 'fast')
         self._apply_speed_mode(self.current_mode)
         
         # Эмоциональные модификаторы (обновлены для быстрого режима)
