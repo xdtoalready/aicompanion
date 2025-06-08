@@ -30,6 +30,9 @@ class RealisticAICompanion:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
+
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
         
         # Инициализация компонентов
         self.psychological_core = PsychologicalCore()
@@ -79,9 +82,6 @@ class RealisticAICompanion:
         self.conversation_history = []
         
         self.commands_enabled = True
-        
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
         
         self.setup_realistic_scheduler()
 
