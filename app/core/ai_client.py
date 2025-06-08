@@ -240,9 +240,16 @@ class OptimizedAI:
         
         logging.info(f"Генерация ответа для {character_name}, тип вопроса: {question_type}")
         
-        if hasattr(self, 'virtual_life_manager'):
+        # Добавляем сведения о текущей виртуальной жизни, если менеджер доступен
+        virtual_context = None
+        if getattr(self, 'virtual_life_manager', None):
+            try:
                 virtual_context = self.virtual_life_manager.get_current_context_for_ai()
-                context['virtual_life_context'] = virtual_context
+            except Exception as e:
+                logging.error(f"Ошибка получения контекста виртуальной жизни: {e}")
+
+        if virtual_context:
+            context['virtual_life_context'] = virtual_context
 
         # Строим промпт с учётом персонажа
         system_prompt = self._build_character_system_prompt(context)
