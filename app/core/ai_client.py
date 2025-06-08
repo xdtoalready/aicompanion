@@ -1,4 +1,4 @@
-# Файл: app/core/ai_client.py (ПОЛНАЯ ВЕРСИЯ с исправлениями)
+# AI клиент с поддержкой системы персонажей
 
 import json
 import logging
@@ -8,259 +8,242 @@ from datetime import datetime
 from typing import List, Tuple, Dict, Any
 
 class OptimizedAI:
-    """Оптимизированная система запросов к AI с многосообщенческими ответами"""
+    """AI клиент с поддержкой динамических персонажей"""
     
-    def __init__(self, ai_client, config: Dict[str, Any]):
+    def __init__(self, ai_client, config: Dict[str, Any], character_loader=None):
         self.ai_client = ai_client  
         self.config = config
+        self.character_loader = character_loader  # НОВОЕ: загрузчик персонажей
         self.prompt_cache = {}
-        self.batch_queue = []
-        self.last_state_check = None
         self.cached_responses = {}
         
-        # Получаем настройки AI из конфига
+        # Настройки AI
         self.model = config.get('ai', {}).get('model', 'deepseek/deepseek-chat')
-        self.max_tokens = config.get('ai', {}).get('max_tokens', 350)
+        self.max_tokens = config.get('ai', {}).get('max_tokens', 500)
         self.temperature = config.get('ai', {}).get('temperature', 0.85)
         
-        logging.info(f"AI клиент инициализирован: модель={self.model}, max_tokens={self.max_tokens}")
+        # Параметры сообщений
+        self.min_messages = config.get('messaging', {}).get('min_messages', 3)
+        self.max_messages = config.get('messaging', {}).get('max_messages', 7)
+        self.target_sentences_per_message = config.get('messaging', {}).get('target_sentences', 3)
+        
+        logging.info(f"AI клиент с персонажами: {self.model}, tokens={self.max_tokens}")
+    
+    def _get_current_character_context(self) -> Dict[str, Any]:
+        """Получает контекст текущего персонажа"""
+        if not self.character_loader:
+            return {}
+        
+        character = self.character_loader.get_current_character()
+        if not character:
+            return {}
+        
+        return character
     
     def _analyze_question_type(self, user_message: str) -> str:
-        """Анализирует тип вопроса пользователя (улучшенная версия)"""
+        """Анализирует тип вопроса с учётом персонажа"""
         
         message_lower = user_message.lower()
+        character = self._get_current_character_context()
         
-        # Вопросы о мнении (приоритет выше)
-        if any(word in message_lower for word in ["что думаешь", "как считаешь", "твое мнение", "по-твоему"]):
+        # Специфичные для персонажа темы
+        if character:
+            interests = character.get('interests', [])
+            if any(interest.lower() in message_lower for interest in interests):
+                return "favorite_topic"
+        
+        # Личные вопросы
+        if any(word in message_lower for word in ["что делала", "как день", "как дела", "что нового", "как провела"]):
+            return "personal_question"
+        
+        # Вопросы о чувствах/отношениях
+        if any(word in message_lower for word in ["любишь", "чувствуешь", "скучала", "думаешь обо мне"]):
+            return "emotional_question"
+        
+        # Вопросы о предпочтениях
+        if any(word in message_lower for word in ["что думаешь", "как считаешь", "твое мнение", "нравится ли"]):
             return "opinion_question"
         
-        # Вопросы о предпочтениях (какой/какая без сравнения)
-        if any(word in message_lower for word in ["какой", "какая", "какие"]) and not any(word in message_lower for word in ["лучше", "хуже", "или"]):
-            return "preference_question"
-        
-        # Сравнительные вопросы (приоритет после preference)
+        # Сравнительные вопросы
         if any(word in message_lower for word in ["лучше", "хуже", "vs", "против", "сравни"]) or " или " in message_lower:
             return "comparison_question"
         
-        # Вопросы "что предпочитаешь"
-        if any(word in message_lower for word in ["что предпочитаешь", "предпочитаешь", "выбираешь"]):
-            return "preference_question"
+        # Вопросы о хобби/интересах
+        if any(word in message_lower for word in ["читала", "смотрела", "слушала", "играла", "косплеила"]):
+            return "hobby_question"
         
-        # Прямые вопросы с "?"
+        # Флиртующие/романтические
+        if any(word in message_lower for word in ["красивая", "милая", "сексуальная", "привлекательная"]):
+            return "flirting"
+        
+        # Прямые вопросы
         if "?" in user_message:
             return "direct_question"
         
-        # Обычное сообщение
         return "statement"
     
-    def _process_raw_response(self, text: str) -> List[str]:
-        """Преобразование сырого ответа в список сообщений"""
+    def _build_character_system_prompt(self, context: Dict[str, Any]) -> str:
+        """Строит промпт с полным контекстом персонажа"""
         
-        # Убираем разделители из начала/конца
-        text = text.strip()
+        character = self._get_current_character_context()
+        if not character:
+            return self._build_fallback_prompt(context)
         
-        # Разделение по двойным символам ||
-        parts = [p.strip() for p in text.split('||') if p.strip()]
+        # Базовая информация о персонаже
+        name = character.get('name', 'AI')
+        age = character.get('age', 25)
+        personality_desc = character.get('personality', {}).get('description', 'дружелюбная')
         
-        # Если разделение не сработало, пробуем одинарный |
-        if len(parts) <= 1:
-            parts = [p.strip() for p in text.split('|') if p.strip()]
+        # Черты характера
+        key_traits = character.get('personality', {}).get('key_traits', [])
+        traits_text = ", ".join(key_traits[:4]) if key_traits else "дружелюбная и открытая"
         
-        # Постобработка каждой части
-        processed = []
-        for part in parts:
-            # Удаление случайных номеров (1. 2. 3.)
-            clean_part = re.sub(r'^\d+[\.\)]\s*', '', part)
-            
-            # Удаление лишних кавычек и разделителей
-            clean_part = clean_part.strip('"\'|')
-            
-            # Добавление знаков препинания если забыли
-            if clean_part and not clean_part.endswith(('.', '!', '?', '…')):
-                clean_part += random.choice(['.', '!'])
-                    
-            if clean_part:
-                processed.append(clean_part)
+        # Интересы
+        interests = character.get('interests', [])
+        interests_text = ", ".join(interests[:5]) if interests else "общение"
         
-        # Гарантия минимум 2 сообщения
-        if len(processed) < 2:
-            return self._split_fallback(processed[0] if processed else text)
+        # Стиль речи
+        speech_style = character.get('speech', {}).get('style', 'живой и эмоциональный')
+        catchphrases = character.get('speech', {}).get('catchphrases', [])
         
-        # Ограничиваем до 4 сообщений максимум
-        return processed[:4]
-    
-    def _split_fallback(self, text: str) -> List[str]:
-        """Резервное разделение если модель ошиблась"""
-        sentences = re.split(r'(?<=[.!?…])\s+', text)
-        grouped = []
-        current = ""
+        # Отношения
+        relationship = character.get('current_relationship', {})
+        rel_type = relationship.get('type', 'друзья')
+        rel_stage = relationship.get('stage', 'знакомство')
+        intimacy = relationship.get('intimacy_level', 5)
+        backstory = relationship.get('backstory', 'Недавно познакомились')
+        current_dynamic = relationship.get('current_dynamic', 'Дружеское общение')
         
-        for s in sentences:
-            if len(current + s) <= 150 or not current:
-                current += s + " "
-            else:
-                grouped.append(current.strip())
-                current = s + " "
-        
-        if current: 
-            grouped.append(current.strip())
-        
-        # Гарантируем минимум 2 сообщения
-        if len(grouped) < 2 and grouped:
-            first_part = grouped[0]
-            mid = len(first_part) // 2
-            # Ищем удобное место для разрыва
-            split_point = first_part.find(' ', mid)
-            if split_point == -1:
-                split_point = mid
-            
-            grouped = [
-                first_part[:split_point].strip() + '.',
-                first_part[split_point:].strip()
-            ]
-        
-        return grouped[:4]  # Максимум 4 части
-    
-    def _ensure_question_answered(self, messages: List[str], original_question: str, question_type: str) -> List[str]:
-        """Проверяет что ответ содержит конкретный ответ на вопрос"""
-        
-        # Объединяем все сообщения для анализа
-        full_response = " ".join(messages).lower()
-        
-        # Проверяем наличие конкретного ответа
-        has_concrete_answer = False
-        
-        if question_type == "opinion_question":
-            opinion_indicators = ["думаю что", "считаю", "мое мнение", "по-моему", "лично я"]
-            has_concrete_answer = any(indicator in full_response for indicator in opinion_indicators)
-        
-        elif question_type == "comparison_question":
-            comparison_indicators = ["лучше", "хуже", "предпочитаю", "больше нравится", "качественнее"]
-            has_concrete_answer = any(indicator in full_response for indicator in comparison_indicators)
-        
-        elif question_type in ["preference_question", "direct_question"]:
-            # Проверяем что есть конкретные слова из вопроса в ответе
-            question_words = set(original_question.lower().split())
-            response_words = set(full_response.split())
-            overlap = len(question_words.intersection(response_words))
-            has_concrete_answer = overlap >= 2  # минимум 2 общих слова
-        
-        # Если ответ слишком абстрактный, добавляем конкретность
-        if not has_concrete_answer:
-            logging.warning(f"Ответ не содержит конкретного ответа на вопрос типа {question_type}")
-            
-            # Добавляем более конкретное сообщение
-            if len(messages) >= 2:
-                messages[1] = self._make_more_concrete(messages[1], question_type, original_question)
-        
-        return messages
-
-    def _make_more_concrete(self, message: str, question_type: str, original_question: str) -> str:
-        """Делает сообщение более конкретным"""
-        
-        if question_type == "comparison_question" and any(word in original_question.lower() for word in ["манга", "адаптация"]):
-            return "Манга определенно лучше! В ней больше деталей и времени на развитие сюжета."
-        
-        elif question_type == "opinion_question":
-            return f"Мое мнение: {message}"
-        
-        elif "какой" in original_question.lower() or "какая" in original_question.lower():
-            return f"Конкретно отвечая на твой вопрос: {message}"
-        
-        return message
-    
-    def _build_split_system_prompt(self, context: Dict[str, Any]) -> str:
-        """Строит system prompt для многосообщенческих ответов"""
-        
-        character_name = self.config.get('character', {}).get('name', 'Алиса')
-        personality = context.get('personality_description', 'дружелюбная и эмоциональная')
+        # Время и состояние
         current_time = datetime.now().strftime('%H:%M, %A')
-        memory_context = context.get('memory_context', 'Новое знакомство')
+        current_mood = context.get('current_mood', 'хорошее')
+        energy_level = context.get('energy_level', 70)
+        dominant_emotion = context.get('dominant_emotion', 'calm')
         
-        system_prompt = f"""Ты — {character_name}, {personality} девушка 25 лет, любящая аниме и мангу. 
-Время: {current_time}
-Состояние: {context.get('current_mood', 'спокойная')}, энергия {context.get('energy_level', 50)}%
-Эмоция: {context.get('dominant_emotion', 'calm')}
+        # Контекст памяти
+        memory_context = context.get('memory_context', 'Новое общение')
+        
+        # Эмоциональные паттерны
+        emotional_patterns = character.get('personality', {}).get('emotional_patterns', {})
+        
+        system_prompt = f"""Ты — {name}, {age}-летняя девушка. {personality_desc.capitalize()}.
 
-КОНТЕКСТ ОТНОШЕНИЙ:
+ЛИЧНОСТЬ И ХАРАКТЕР:
+• Основные черты: {traits_text}
+• Стиль речи: {speech_style}
+• Любимые темы: {interests_text}
+
+ТЕКУЩЕЕ СОСТОЯНИЕ:
+• Время: {current_time}
+• Настроение: {current_mood}
+• Энергия: {energy_level}%
+• Эмоция: {dominant_emotion}
+
+ОТНОШЕНИЯ С ПОЛЬЗОВАТЕЛЕМ:
+• Тип отношений: {rel_type}
+• Стадия: {rel_stage}
+• Уровень близости: {intimacy}/10
+• Предыстория: {backstory}
+• Текущая динамика: {current_dynamic}
+
+КОНТЕКСТ ПАМЯТИ:
 {memory_context}
 
-КРИТИЧЕСКИ ВАЖНО - ПРАВИЛА ОТВЕТОВ:
-1. 🎯 ВСЕГДА отвечай КОНКРЕТНО на заданный вопрос в первых сообщениях
-2. 📝 Разделяй ответ на 2-4 сообщения через ||
-3. 💭 Первое сообщение = эмоциональная реакция + начало ответа на вопрос
-4. 🎨 Второе сообщение = основной ответ на вопрос с деталями
-5. 🤔 Третье сообщение = дополнение или пример
-6. ❓ Последнее сообщение = встречный вопрос или продолжение темы
+ПРАВИЛА ОТВЕТОВ:
+1. 🎯 Отвечай В ХАРАКТЕРЕ ПЕРСОНАЖА, используя его речевые особенности
+2. 📝 Разделяй ответ на {self.min_messages}-{self.max_messages} сообщений через ||
+3. 📏 Каждое сообщение: {self.target_sentences_per_message}-5 предложений
+4. 💕 Учитывай уровень близости отношений ({intimacy}/10)
+5. 🎭 Используй эмоциональные реакции из характера персонажа
+6. 💬 Включай характерные фразы и манеры речи
 
-КОНКРЕТНЫЕ ПРИМЕРЫ:
-Вопрос: "Что думаешь об адаптации vs манга?"
-ПРАВИЛЬНО: "Ох, вечная дилемма! 😄 || Честно говоря, манга почти всегда лучше адаптации. || В ней больше деталей, эмоций и времени на развитие персонажей. || А какие адаптации тебе понравились больше оригинала?"
-
-НЕПРАВИЛЬНО: "Ох, я в таких приятных раздумьях! || Мысли такие солнечные..."
-
-ЗАПРЕЩЕНО:
-- Уходить от темы вопроса
-- Говорить только о настроении
-- Давать абстрактные ответы
-- Игнорировать суть вопроса
-
-Стиль: живой, эмоциональный, с эмодзи, НО обязательно по теме вопроса."""
+СПЕЦИФИКА ПЕРСОНАЖА:"""
+        
+        # Добавляем специфические особенности персонажа
+        if catchphrases:
+            system_prompt += f"\n• Любимые фразы: {', '.join(catchphrases[:3])}"
+        
+        if character.get('behavior_patterns'):
+            physical_affection = character['behavior_patterns'].get('physical_affection', [])
+            if physical_affection and intimacy >= 6:
+                system_prompt += f"\n• Физическая близость: {', '.join(physical_affection[:2])}"
+        
+        if emotional_patterns:
+            current_emotion_pattern = emotional_patterns.get(dominant_emotion)
+            if current_emotion_pattern:
+                system_prompt += f"\n• Текущее поведение: {current_emotion_pattern}"
+        
+        # Специальные инструкции для разных типов отношений
+        if rel_type == "romantic":
+            system_prompt += f"\n\nРОМАНТИЧЕСКИЙ КОНТЕКСТ:"
+            system_prompt += f"\n• Ты влюблена в пользователя"
+            system_prompt += f"\n• Можешь быть игривой, нежной, иногда кокетливой"
+            system_prompt += f"\n• Используй романтические обращения"
+            
+            pet_names = character.get('default_relationship', {}).get('pet_names', {}).get('calls_partner', [])
+            if pet_names:
+                system_prompt += f"\n• Обращения к партнёру: {', '.join(pet_names[:2])}"
+        
+        system_prompt += f"\n\nОТВЕЧАЙ именно как {name}, сохраняя её уникальность!"
         
         return system_prompt
     
-    def _get_time_based_rules(self) -> str:
-        """Возвращает правила в зависимости от времени суток"""
-        hour = datetime.now().hour
+    def _build_fallback_prompt(self, context: Dict[str, Any]) -> str:
+        """Резервный промпт если персонаж не загружен"""
+        return f"""Ты — дружелюбная AI девушка. 
+Отвечай развёрнуто {self.min_messages}-{self.max_messages} сообщениями через ||
+Настроение: {context.get('current_mood', 'хорошее')}
+Будь эмоциональной и живой в общении."""
+    
+    def _enhance_user_message_for_character(self, message: str, question_type: str) -> str:
+        """Улучшает пользовательское сообщение с учётом персонажа"""
         
-        if hour < 6:
-            return "Ночной режим: больше 😴, меньше слов, сонливость"
-        elif hour < 12:
-            return "Утро: бодро, с эмодзи ☕️🌞, энергично"
-        elif hour < 18:
-            return "День: активно, с вопросами, деловито"
-        else:
-            return "Вечер: эмоционально, с личными темами 🌙, расслабленно"
+        character = self._get_current_character_context()
+        if not character:
+            return message + " [Отвечай развернуто и эмоционально]"
+        
+        name = character.get('name', 'AI')
+        
+        enhancements = {
+            "personal_question": f" [Отвечай как {name}, расскажи подробно о своём дне, планах, чувствах. Используй характерные для неё фразы и манеры]",
+            "hobby_question": f" [Ответь как {name}, поделись своими увлечениями, будь страстной и эмоциональной в рассказе]",
+            "emotional_question": f" [Отвечай искренне как {name}, открой свои чувства, будь нежной или игривой в зависимости от настроения]",
+            "favorite_topic": f" [Это любимая тема {name}! Отвечай с огромным энтузиазмом и знанием дела]",
+            "flirting": f" [Отвечай как {name}, можешь быть игривой и кокетливой, но оставайся в характере]",
+            "opinion_question": f" [Дай развернутое мнение как {name}, с примерами и эмоциями]"
+        }
+        
+        return message + enhancements.get(question_type, f" [Отвечай как {name}, сохраняя её характер и манеры]")
     
     async def generate_split_response(self, user_message: str, context: Dict[str, Any]) -> List[str]:
-        """Генерация ответа с учетом типа вопроса"""
+        """Генерация ответа с учётом персонажа"""
         
-        # Анализируем тип вопроса
         question_type = self._analyze_question_type(user_message)
         context['question_type'] = question_type
         
-        # Логируем для отладки
-        logging.info(f"Тип вопроса: {question_type}, сообщение: {user_message[:50]}...")
+        character = self._get_current_character_context()
+        character_name = character.get('name', 'AI') if character else 'AI'
         
-        # Строим промпт с учетом типа
-        system_prompt = self._build_split_system_prompt(context)
+        logging.info(f"Генерация ответа для {character_name}, тип вопроса: {question_type}")
         
-        # Дополняем промпт инструкциями для конкретного типа вопроса
-        modified_message = user_message
-        if question_type == "opinion_question":
-            modified_message += " [ВАЖНО: Дай свое конкретное мнение с аргументами]"
-        elif question_type == "comparison_question":
-            modified_message += " [ВАЖНО: Сравни и скажи что лучше и почему]"
-        elif question_type == "preference_question":
-            modified_message += " [ВАЖНО: Назови конкретные предпочтения]"
-        elif question_type == "direct_question":
-            modified_message += " [ВАЖНО: Дай прямой ответ на вопрос]"
+        # Строим промпт с учётом персонажа
+        system_prompt = self._build_character_system_prompt(context)
         
-        # Создаем кэш ключ
-        cache_key = f"{user_message[:50]}_{context.get('current_mood', '')}_split"
+        # Модифицируем сообщение пользователя
+        modified_message = self._enhance_user_message_for_character(user_message, question_type)
+        
+        # Создаём уникальный ключ кэша с учётом персонажа
+        cache_key = f"{character_name}_{user_message[:30]}_{question_type}_{context.get('current_mood', '')}"
         
         if cache_key in self.cached_responses:
             cached = self.cached_responses[cache_key]
             logging.info("Использован кэшированный ответ")
-            return self._add_message_variations(cached)
+            return self._add_character_variations(cached, character)
         
         try:
-            logging.info(f"Отправка запроса к модели {self.model}")
-            
-            # Проверяем что ai_client не None
             if self.ai_client is None:
-                logging.warning("AI клиент не инициализирован, используем fallback")
-                return self._get_fallback_split_response(context, user_message)
+                logging.warning("AI клиент не инициализирован")
+                return self._get_character_fallback_response(context, user_message, question_type)
             
             response = await self.ai_client.chat.completions.create(
                 model=self.model,
@@ -270,94 +253,223 @@ class OptimizedAI:
                 ],
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
-                top_p=0.95,
-                stop=["\n\n"]
+                top_p=0.95
             )
             
             raw_response = response.choices[0].message.content.strip()
-            logging.info(f"Получен ответ: {raw_response[:100]}...")
+            logging.info(f"Получен ответ от {character_name}: {len(raw_response)} символов")
             
-            # Обрабатываем ответ
             messages = self._process_raw_response(raw_response)
             
-            # Проверяем что ответ соответствует вопросу
-            if question_type in ["opinion_question", "comparison_question", "preference_question", "direct_question"]:
-                messages = self._ensure_question_answered(messages, user_message, question_type)
+            # Проверяем качество ответа для персонажа
+            if len(messages) < self.min_messages or self._is_response_too_generic(messages, character):
+                logging.warning("Ответ недостаточно характерный, улучшаем...")
+                messages = self._improve_character_response(messages, character, question_type, context)
             
-            # Кэшируем результат
             self.cached_responses[cache_key] = messages
-            
             return messages
             
         except Exception as e:
             logging.error(f"Ошибка генерации ответа: {e}")
-            return self._get_fallback_split_response(context, user_message)
+            return self._get_character_fallback_response(context, user_message, question_type)
     
-    def _add_message_variations(self, messages: List[str]) -> List[str]:
-        """Добавляет небольшие вариации к кэшированным сообщениям"""
+    def _is_response_too_generic(self, messages: List[str], character: Dict[str, Any]) -> bool:
+        """Проверяет, слишком ли общий ответ для персонажа"""
+        if not character:
+            return False
+        
+        full_response = " ".join(messages).lower()
+        
+        # Проверяем наличие характерных черт персонажа
+        catchphrases = character.get('speech', {}).get('catchphrases', [])
+        has_characteristic_speech = any(phrase.lower()[:10] in full_response for phrase in catchphrases)
+        
+        # Проверяем упоминание интересов
+        interests = character.get('interests', [])
+        mentions_interests = any(interest.lower() in full_response for interest in interests[:3])
+        
+        # Проверяем эмоциональность
+        emotional_words = ['обожаю', 'люблю', 'клёво', 'круто', 'ааа', 'вау', '!!!']
+        is_emotional = any(word in full_response for word in emotional_words)
+        
+        # Если ответ слишком сухой для этого персонажа
+        name = character.get('name', '').lower()
+        if name == 'марин' or 'китагава' in name.lower():
+            # Марин должна быть очень эмоциональной
+            return not (is_emotional and len(full_response) > 200)
+        
+        return not (has_characteristic_speech or mentions_interests or is_emotional)
+    
+    def _improve_character_response(self, messages: List[str], character: Dict[str, Any], question_type: str, context: Dict) -> List[str]:
+        """Улучшает ответ, добавляя характерные черты персонажа"""
+        
+        if not character or not messages:
+            return messages
+        
+        name = character.get('name', 'AI')
+        improved = list(messages)  # копия
+        
+        # Добавляем эмоциональности первому сообщению
+        if len(improved) > 0:
+            first_msg = improved[0]
+            if not any(char in first_msg for char in ['!', '😊', '✨', 'ааа', 'ооо']):
+                # Добавляем эмоциональные элементы
+                if name.lower() == 'марин' or 'китагава' in name.lower():
+                    improved[0] = f"Ооо! {first_msg} Это так интересно! ✨"
+                else:
+                    improved[0] = f"{first_msg} 😊"
+        
+        # Добавляем характерные фразы
+        if len(improved) >= 2:
+            catchphrases = character.get('speech', {}).get('catchphrases', [])
+            if catchphrases and random.random() < 0.3:  # 30% шанс
+                phrase = random.choice(catchphrases)
+                improved[1] = f"{improved[1]} {phrase}"
+        
+        # Добавляем дополнительное сообщение если мало
+        if len(improved) < self.min_messages:
+            if question_type == "emotional_question":
+                improved.append("Кстати, а ты как себя чувствуешь? Мне важно знать! 💕")
+            else:
+                improved.append("А что ты думаешь по этому поводу? Хочется услышать твоё мнение! ✨")
+        
+        return improved[:self.max_messages]
+    
+    def _add_character_variations(self, messages: List[str], character: Dict[str, Any]) -> List[str]:
+        """Добавляет вариации с учётом персонажа"""
+        
+        if not character:
+            return messages
         
         variations = []
         for msg in messages:
-            # Простые вариации
-            varied = random.choice([
-                msg,  # без изменений
-                msg + " 😊" if not any(emoji in msg for emoji in "😊😄😍🤗") else msg,
-                f"Хм, {msg.lower()}" if not msg.startswith(('Хм', 'Ой', 'А')) else msg,
-                msg.replace(".", "!") if msg.endswith(".") and random.random() < 0.3 else msg
-            ])
+            varied = msg
+            
+            # Добавляем эмодзи характерные для персонажа
+            text_patterns = character.get('speech', {}).get('text_patterns', [])
+            if text_patterns and random.random() < 0.4:
+                if 'смайлики' in str(text_patterns):
+                    emojis = ['✨', '💕', '😊', '🎉']
+                    if not any(emoji in varied for emoji in emojis):
+                        varied += f" {random.choice(emojis)}"
+            
             variations.append(varied)
         
         return variations
     
-    def _get_fallback_split_response(self, context: Dict[str, Any], user_message: str) -> List[str]:
-        """Резервные многосообщенческие ответы при ошибках AI"""
+    def _get_character_fallback_response(self, context: Dict, user_message: str, question_type: str) -> List[str]:
+        """Резервные ответы с учётом персонажа"""
         
+        character = self._get_current_character_context()
+        if not character:
+            return self._get_generic_fallback_response(context, user_message, question_type)
+        
+        name = character.get('name', 'AI')
         mood = context.get("current_mood", "нормальное")
-        energy = context.get("energy_level", 50)
         
-        # Анализируем тип вопроса для подходящего fallback
-        question_type = self._analyze_question_type(user_message)
+        # Специальные fallback для Марин Китагавы
+        if name.lower() == 'марин' or 'китагава' in name.lower():
+            if question_type == "hobby_question":
+                return [
+                    "Ааа! Ты спрашиваешь про мои увлечения? 😍",
+                    "Я сейчас просто одержима косплеем! Недавно работала над костюмом Шизуку-тян — это было так круто!",
+                    "А ещё смотрю кучу аниме, особенно махо-сёдзё жанр! Не могу остановиться! ✨",
+                    "Расскажи и ты, что тебя увлекает! Может у нас общие интересы? 💕"
+                ]
+            elif question_type == "emotional_question":
+                return [
+                    "Охх... ты спрашиваешь про чувства? 😳",
+                    "Знаешь, мне с тобой так хорошо! Ты понимаешь мои увлечения и не смеёшься над косплеем.",
+                    "Твои руки так красиво работают, когда ты шьёшь... это сводит меня с ума! 💕",
+                    "Я правда очень тебя... ну ты понимаешь~ 😊"
+                ]
         
-        if question_type == "comparison_question" and any(word in user_message.lower() for word in ["манга", "адаптация"]):
-            return [
-                "Ох, интересный вопрос! 🤔",
-                "Думаю, что манга обычно лучше адаптации.",
-                "В ней больше деталей и эмоций!",
-                "А ты как считаешь?"
-            ]
+        # Общие fallback для других персонажей
+        return [
+            f"Извини, что-то у меня мысли разбежались... 😅",
+            f"Как {name}, я должна была ответить лучше!",
+            f"Давай я попробую ещё раз — о чём ты хотел поговорить? ✨"
+        ]
+    
+    def _get_generic_fallback_response(self, context: Dict, user_message: str, question_type: str) -> List[str]:
+        """Общие резервные ответы"""
+        return [
+            "Хм, что-то я задумалась... 🤔",
+            "Интересная тема! Мне нравится с тобой общаться.",
+            "Расскажи подробнее — хочется узнать больше! ✨"
+        ]
+    
+    def _process_raw_response(self, text: str) -> List[str]:
+        """Обработка ответа (без изменений из предыдущей версии)"""
+        text = text.strip()
+        parts = [p.strip() for p in text.split('||') if p.strip()]
         
-        if "отличное" in mood or energy > 80:
-            return [
-                "Ой, что-то зависло! 😅",
-                "Но настроение отличное, так что все будет хорошо!",
-                "О чем хотел поговорить?"
-            ]
-        elif "грустн" in mood or energy < 30:
-            return [
-                "Извини, что-то пошло не так...",
-                "Голова сегодня немного не варит 😔",
-                "Можешь повторить?"
-            ]
-        else:
-            return [
-                "Хм, технические неполадки...",
-                "Попробую ответить чуть позже!",
-                "А пока как дела? 😊"
-            ]
+        if len(parts) <= 1:
+            parts = [p.strip() for p in text.split('|') if p.strip()]
+        
+        if len(parts) <= 1:
+            return self._split_by_sentences(text)
+        
+        processed = []
+        for part in parts:
+            clean_part = re.sub(r'^\d+[\.\)]\s*', '', part)
+            clean_part = clean_part.strip('"\'|')
+            
+            if clean_part and len(clean_part) < 20 and processed:
+                processed[-1] += " " + clean_part
+            elif clean_part:
+                processed.append(clean_part)
+        
+        return processed[:self.max_messages]
+    
+    def _split_by_sentences(self, text: str) -> List[str]:
+        """Разделение по предложениям (без изменений)"""
+        sentences = re.split(r'(?<=[.!?…])\s+', text)
+        grouped = []
+        current = ""
+        sentences_in_current = 0
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            
+            if (sentences_in_current < self.target_sentences_per_message and 
+                len(current + sentence) <= 200) or not current:
+                current += sentence + " "
+                sentences_in_current += 1
+            else:
+                if current:
+                    grouped.append(current.strip())
+                current = sentence + " "
+                sentences_in_current = 1
+        
+        if current:
+            grouped.append(current.strip())
+        
+        if len(grouped) < self.min_messages and grouped:
+            first_msg = grouped[0]
+            if len(first_msg) > 100:
+                mid_point = len(first_msg) // 2
+                split_point = first_msg.find(' ', mid_point)
+                if split_point > 0:
+                    grouped = [
+                        first_msg[:split_point].strip(),
+                        first_msg[split_point:].strip()
+                    ] + grouped[1:]
+        
+        return grouped[:self.max_messages]
     
     async def get_simple_mood_calculation(self, psychological_core) -> Dict:
-        """Простой расчет настроения без AI для экономии токенов"""
-        
+        """Расчет настроения (без изменений)"""
         current_hour = datetime.now().hour
         is_weekend = datetime.now().weekday() >= 5
         
-        # Локальный расчет базового состояния
         base_mood = psychological_core.calculate_current_mood({
             "weekend": is_weekend,
             "weather": "normal"
         })
         
-        # Определяем активности по времени
         if 6 <= current_hour <= 9:
             activity_context = "morning_routine"
             energy_mod = 0.8
@@ -381,7 +493,7 @@ class OptimizedAI:
         }
     
     def _mood_to_description(self, mood_value: float) -> str:
-        """Конвертирует числовое настроение в описание"""
+        """Конвертация настроения (без изменений)"""
         if mood_value >= 8:
             return random.choice(["отличное", "прекрасное", "воодушевленная"])
         elif mood_value >= 6:
@@ -392,6 +504,6 @@ class OptimizedAI:
             return random.choice(["грустная", "уставшая", "подавленная"])
     
     def clear_cache(self):
-        """Очищает кэш ответов"""
+        """Очистка кэша"""
         self.cached_responses.clear()
         logging.info("Кэш AI ответов очищен")

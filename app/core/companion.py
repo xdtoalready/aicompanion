@@ -1,5 +1,6 @@
 # Основной модуль AI-компаньона с многосообщенческими ответами
 
+from .character_loader import character_loader
 import asyncio
 import json
 import logging
@@ -33,12 +34,23 @@ class RealisticAICompanion:
         # Инициализация компонентов
         self.psychological_core = PsychologicalCore()
         
-        # НОВОЕ: Используем базу данных для памяти
+        # База данных для памяти
         db_path = config.get('database', {}).get('path', 'data/companion.db')
         self.enhanced_memory = EnhancedMemorySystem(db_path)
         
         # Оставляем старую систему для совместимости
         self.memory_system = AdvancedMemorySystem()
+        
+        # НОВОЕ: Инициализируем загрузчик персонажей
+        global character_loader
+        
+        # Загружаем персонажа по умолчанию если ещё не загружен
+        if not character_loader.get_current_character():
+            available_chars = character_loader.get_available_characters()
+            if available_chars:
+                # Загружаем первого доступного персонажа
+                character_loader.load_character(available_chars[0]['id'])
+                self.logger.info(f"Автоматически загружен персонаж: {available_chars[0]['name']}")
         
         # AI клиент
         self.ai_client = AsyncOpenAI(
@@ -46,7 +58,8 @@ class RealisticAICompanion:
             base_url="https://openrouter.ai/api/v1"
         )
         
-        self.optimized_ai = OptimizedAI(self.ai_client, config)
+        # ИЗМЕНЕНО: Передаём character_loader в AI клиент
+        self.optimized_ai = OptimizedAI(self.ai_client, config, character_loader)
         
         # Система печатания
         typing_config = config.get('typing', {})
@@ -71,6 +84,26 @@ class RealisticAICompanion:
         self.logger = logging.getLogger(__name__)
         
         self.setup_realistic_scheduler()
+
+    def get_current_character_info(self) -> Dict[str, Any]:
+        """Получает информацию о текущем персонаже"""
+        character = character_loader.get_current_character()
+        if not character:
+            return {
+                "name": "AI",
+                "loaded": False,
+                "error": "Персонаж не загружен"
+            }
+        
+        return {
+            "name": character.get('name', 'Неизвестно'),
+            "age": character.get('age', 'Неизвестно'),
+            "description": character.get('personality', {}).get('description', ''),
+            "relationship_type": character.get('current_relationship', {}).get('type', 'неопределенный'),
+            "intimacy_level": character.get('current_relationship', {}).get('intimacy_level', 0),
+            "loaded": True,
+            "file_id": character.get('id', 'unknown')
+        }
     
     def setup_realistic_scheduler(self):
         """Настройка реалистичного планировщика"""
@@ -222,7 +255,7 @@ class RealisticAICompanion:
             }
 
     async def process_user_message(self, message: str) -> List[str]:
-        """Обработка сообщения пользователя с БД контекстом"""
+        """Обработка сообщения пользователя с учётом персонажа"""
         
         try:
             # Получаем настроение ДО обработки
@@ -236,23 +269,39 @@ class RealisticAICompanion:
                 self.psychological_core
             )
             
-            # НОВОЕ: Получаем контекст из базы данных
+            # Получаем контекст из базы данных
             db_context = self.enhanced_memory.get_context_for_response(message)
             current_state['memory_context'] = db_context
             
-            # Логируем контекст для отладки
-            self.logger.info(f"Контекст из БД: {db_context[:100]}...")
+            # НОВОЕ: Добавляем контекст персонажа
+            character_context = character_loader.get_character_context_for_ai()
+            current_state['character_context'] = character_context
             
-            # Генерируем ответ с контекстом
+            self.logger.info(f"Контекст персонажа: {character_context[:100]}...")
+            
+            # Генерируем ответ с полным контекстом
             ai_messages = await self.optimized_ai.generate_split_response(message, current_state)
             
             # Получаем настроение ПОСЛЕ обработки
             mood_after = self.psychological_core.emotional_momentum["current_emotion"]
             
-            # НОВОЕ: Сохраняем диалог в базу данных
+            # Сохраняем диалог в базу данных
             conversation_id = self.enhanced_memory.add_conversation(
                 message, ai_messages, mood_before, mood_after
             )
+            
+            # НОВОЕ: Обновляем прогресс отношений с персонажем
+            character = character_loader.get_current_character()
+            if character:
+                # Увеличиваем близость при позитивном общении
+                current_intimacy = character.get('current_relationship', {}).get('intimacy_level', 1)
+                if mood_after in ['happy', 'excited', 'content'] and random.random() < 0.1:  # 10% шанс
+                    new_intimacy = min(10, current_intimacy + 0.1)
+                    character_loader.update_relationship_progress({
+                        'intimacy_level': new_intimacy,
+                        'last_positive_interaction': datetime.now().isoformat()
+                    })
+                    self.logger.info(f"Близость увеличена до {new_intimacy:.1f}")
             
             self.logger.info(f"Диалог сохранен в БД с ID: {conversation_id}")
             
@@ -264,7 +313,75 @@ class RealisticAICompanion:
             
         except Exception as e:
             self.logger.error(f"Ошибка обработки сообщения: {e}")
-            return ["Извини, что-то пошло не так... 😅 Попробуй еще раз!"]
+            # Fallback с учётом персонажа
+            character = character_loader.get_current_character()
+            if character and 'марин' in character.get('name', '').lower():
+                return ["Ой! 😅 Что-то пошло не так...", "Попробуй написать ещё раз! ✨"]
+            else:
+                return ["Извини, что-то пошло не так... 😅 Попробуй еще раз!"]
+            
+    # МЕТОД ДЛЯ ИНИЦИАТИВНЫХ СООБЩЕНИЙ С УЧЁТОМ ПЕРСОНАЖА:
+    async def send_initiative_messages(self, current_state: Dict):
+        """Отправка инициативных сообщений с учётом персонажа"""
+        
+        # Получаем контекст из базы данных
+        db_context = self.enhanced_memory.get_context_for_response("инициативное общение")
+        current_state['memory_context'] = db_context
+        
+        # НОВОЕ: Добавляем контекст персонажа
+        character_context = character_loader.get_character_context_for_ai()
+        current_state['character_context'] = character_context
+        
+        # Получаем текущего персонажа для специальных тем
+        character = character_loader.get_current_character()
+        initiative_prompt = "Хочу написать пользователю что-то интересное"
+        
+        if character:
+            # Специальные темы для инициатив в зависимости от персонажа
+            initiative_topics = character.get('behavior', {}).get('initiative_topics', [])
+            if initiative_topics:
+                topic = random.choice(initiative_topics)
+                initiative_prompt = f"Хочу {topic}"
+                
+            # Для Марин - особые инициативы
+            if 'марин' in character.get('name', '').lower():
+                special_topics = [
+                    "рассказать о новом косплее который планирую",
+                    "поделиться впечатлениями от аниме которое смотрела",
+                    "предложить вместе поработать над костюмом",
+                    "рассказать о смешном случае на конвенции",
+                    "спросить мнение о новом наряде"
+                ]
+                initiative_prompt = f"Хочу {random.choice(special_topics)}"
+        
+        try:
+            # Генерируем множественные сообщения
+            messages = await self.optimized_ai.generate_split_response(
+                initiative_prompt, 
+                current_state
+            )
+            
+            # Доставляем сообщения
+            await self.deliver_messages_with_timing(
+                messages, 
+                current_state, 
+                message_type="initiative"
+            )
+            
+            # Сохраняем в БД как инициативный диалог
+            mood_current = current_state.get('dominant_emotion', 'calm')
+            self.enhanced_memory.add_conversation(
+                "[ИНИЦИАТИВА]", messages, mood_current, mood_current
+            )
+            
+            # Обновляем состояние
+            self.psychological_core.update_emotional_state("positive_interaction", 0.5)
+            self.last_message_time = datetime.now()
+            
+            self.logger.info(f"Инициативные сообщения отправлены: {len(messages)} шт.")
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка генерации инициативы: {e}")
     
     async def deliver_messages_with_timing(self, messages: List[str], 
                                          current_state: Dict[str, Any],
@@ -426,21 +543,31 @@ class RealisticAICompanion:
     # НОВЫЕ МЕТОДЫ для отладки и мониторинга
     
     def get_conversation_stats(self) -> Dict[str, Any]:
-        """Статистика разговоров"""
-        if not self.conversation_history:
-            return {"total_conversations": 0}
-        
-        total_user_messages = len(self.conversation_history)
-        total_ai_messages = sum(conv.get('message_count', 1) for conv in self.conversation_history)
-        avg_messages_per_response = total_ai_messages / total_user_messages if total_user_messages > 0 else 0
-        
-        return {
-            "total_conversations": total_user_messages,
-            "total_ai_messages": total_ai_messages,
-            "avg_messages_per_response": round(avg_messages_per_response, 1),
+        """Статистика разговоров с информацией о персонаже"""
+        base_stats = {
+            "total_conversations": len(self.conversation_history),
+            "total_ai_messages": sum(conv.get('message_count', 1) for conv in self.conversation_history),
             "daily_initiatives_sent": self.daily_message_count,
             "last_conversation": self.conversation_history[-1]['timestamp'].strftime('%H:%M:%S') if self.conversation_history else None
         }
+        
+        if base_stats["total_conversations"] > 0:
+            base_stats["avg_messages_per_response"] = round(
+                base_stats["total_ai_messages"] / base_stats["total_conversations"], 1
+            )
+        else:
+            base_stats["avg_messages_per_response"] = 0
+        
+        # НОВОЕ: Добавляем информацию о персонаже
+        character_info = self.get_current_character_info()
+        base_stats.update({
+            "current_character": character_info["name"],
+            "character_loaded": character_info["loaded"],
+            "relationship_type": character_info.get("relationship_type", "неизвестный"),
+            "intimacy_level": character_info.get("intimacy_level", 0)
+        })
+        
+        return base_stats
     
     async def start(self):
         """Запуск компаньона"""

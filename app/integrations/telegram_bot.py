@@ -12,6 +12,7 @@ from telegram.ext import (
     filters, 
     ContextTypes
 )
+from app.core.character_loader import character_loader
 
 from app.core.companion import RealisticAICompanion
 
@@ -43,6 +44,12 @@ class TelegramCompanion(RealisticAICompanion):
         # Команды (временно оставляем для отладки)
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
+
+        # НОВЫЕ команды для персонажей
+        self.app.add_handler(CommandHandler("characters", self.characters_command))
+        self.app.add_handler(CommandHandler("switch", self.switch_command))
+        self.app.add_handler(CommandHandler("charinfo", self.charinfo_command))
+        self.app.add_handler(CommandHandler("relationship", self.relationship_command))
         
         # Команды для отладки (будут убраны позже)
         if self.commands_enabled:
@@ -57,6 +64,127 @@ class TelegramCompanion(RealisticAICompanion):
         
         # Обработка ошибок
         self.app.add_error_handler(self.error_handler)
+
+    async def characters_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать доступных персонажей"""
+        if not self.commands_enabled:
+            return
+        
+        available_chars = character_loader.get_available_characters()
+        current_char = character_loader.get_current_character()
+        current_name = current_char.get('name', 'Не загружен') if current_char else 'Не загружен'
+        
+        if not available_chars:
+            await update.message.reply_text(
+                "📂 Персонажи не найдены!\n\n"
+                "💡 Создайте файлы персонажей в папке characters/\n"
+                "Пример: characters/marin_kitagawa.json"
+            )
+            return
+        
+        text = f"👥 ДОСТУПНЫЕ ПЕРСОНАЖИ\n"
+        text += f"🎭 Текущий: **{current_name}**\n\n"
+        
+        for i, char in enumerate(available_chars, 1):
+            status = "✅" if char['name'] == current_name else "⭕"
+            text += f"{status} `{char['id']}` - **{char['name']}**\n"
+            text += f"   {char['description']}\n\n"
+        
+        text += "💡 Переключение: `/switch <id_персонажа>`\n"
+        text += "📋 Информация: `/charinfo`"
+        
+        await update.message.reply_text(text, parse_mode='Markdown')
+
+    async def switch_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Переключение персонажа"""
+        if not self.commands_enabled:
+            return
+        
+        if not context.args:
+            await update.message.reply_text(
+                "❓ Укажите ID персонажа!\n\n"
+                "Использование: `/switch marin_kitagawa`\n"
+                "Доступные персонажи: `/characters`"
+            )
+            return
+        
+        new_character_id = context.args[0].lower()
+        
+        # Получаем информацию о старом персонаже
+        old_char = character_loader.get_current_character()
+        old_name = old_char.get('name', 'Неизвестный') if old_char else 'Никто'
+        
+        # Переключаемся
+        success = character_loader.switch_character(new_character_id)
+        
+        if success:
+            new_char = character_loader.get_current_character()
+            new_name = new_char.get('name', 'Новый персонаж')
+            
+            # Создаем сообщения о переключении с учётом нового персонажа
+            switch_messages = await self._generate_character_switch_response(old_name, new_name, new_char)
+            
+            # Отправляем уведомление с реалистичным печатанием
+            current_state = await self.optimized_ai.get_simple_mood_calculation(
+                self.psychological_core
+            )
+            
+            await self.send_telegram_messages_with_timing(
+                chat_id=update.effective_chat.id,
+                messages=switch_messages,
+                current_state=current_state
+            )
+            
+            # Обновляем AI клиент с новым персонажем
+            self.optimized_ai.character_loader = character_loader
+            
+            self.logger.info(f"Персонаж переключён: {old_name} → {new_name}")
+            
+        else:
+            await update.message.reply_text(
+                f"❌ Не удалось переключиться на `{new_character_id}`\n\n"
+                f"Проверьте что файл `characters/{new_character_id}.json` существует\n"
+                f"Доступные персонажи: `/characters`",
+                parse_mode='Markdown'
+            )
+
+    async def _generate_character_switch_response(self, old_name: str, new_name: str, new_character: dict) -> List[str]:
+        """Генерирует сообщения о переключении персонажа"""
+        
+        if not new_character:
+            return [f"Переключение на {new_name}... Привет! 😊"]
+        
+        # Получаем характерные черты нового персонажа
+        personality = new_character.get('personality', {})
+        key_traits = personality.get('key_traits', [])
+        speech_style = new_character.get('speech', {}).get('style', 'дружелюбный')
+        catchphrases = new_character.get('speech', {}).get('catchphrases', [])
+        
+        # Специальные сообщения для Марин Китагавы
+        if 'марин' in new_name.lower() or 'китагава' in new_name.lower():
+            return [
+                "Ааа! Вау! 😍 Это что, смена персонажа?!",
+                "Привееет! Я Марин Китагава! Обожаю косплей и аниме! ✨",
+                "Ты будешь помогать мне с костюмами? Я так надеюсь! 💕",
+                "Расскажи, что ты любишь! Может у нас общие интересы? 🎭"
+            ]
+        
+        # Общий шаблон для других персонажей
+        messages = [
+            f"Привет! Теперь я {new_name}! 😊"
+        ]
+        
+        if key_traits:
+            trait = key_traits[0] if key_traits else "дружелюбная"
+            messages.append(f"Я {trait} и очень рада знакомству!")
+        
+        if catchphrases:
+            phrase = catchphrases[0]
+            messages.append(f"{phrase} ✨")
+        
+        messages.append("Расскажи о себе! Хочется узнать тебя лучше! 💕")
+        
+        return messages
     
     # Добавляем новый метод:
     async def dbcheck_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -137,6 +265,217 @@ class TelegramCompanion(RealisticAICompanion):
         )
         
         self.logger.info(f"Новый пользователь начал общение: {user_id}")
+
+    async def charinfo_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Информация о текущем персонаже"""
+        if not self.commands_enabled:
+            return
+        
+        character = character_loader.get_current_character()
+        
+        if not character:
+            await update.message.reply_text(
+                "❌ Персонаж не загружен!\n\n"
+                "Загрузите персонажа: `/characters`"
+            )
+            return
+        
+        # Базовая информация
+        name = character.get('name', 'Неизвестно')
+        age = character.get('age', 'Неизвестно')
+        description = character.get('personality', {}).get('description', 'Нет описания')
+        
+        text = f"👤 **{name}** ({age} лет)\n"
+        text += f"📝 {description.capitalize()}\n\n"
+        
+        # Черты характера
+        key_traits = character.get('personality', {}).get('key_traits', [])
+        if key_traits:
+            text += f"🎭 **Черты характера:**\n"
+            for trait in key_traits[:4]:  # Первые 4
+                text += f"• {trait}\n"
+            text += "\n"
+        
+        # Интересы
+        interests = character.get('interests', [])
+        if interests:
+            text += f"❤️ **Интересы:**\n"
+            text += f"{', '.join(interests[:5])}\n\n"
+        
+        # Отношения
+        relationship = character.get('current_relationship', {})
+        if relationship:
+            rel_type = relationship.get('type', 'неопределенные')
+            stage = relationship.get('stage', 'неизвестна')
+            intimacy = relationship.get('intimacy_level', 0)
+            
+            text += f"💕 **Отношения:**\n"
+            text += f"• Тип: {rel_type}\n"
+            text += f"• Стадия: {stage}\n"
+            text += f"• Близость: {intimacy}/10\n\n"
+        
+        # Стиль речи
+        speech = character.get('speech', {})
+        if speech:
+            style = speech.get('style', 'обычный')
+            text += f"💬 **Стиль речи:** {style}\n"
+            
+            catchphrases = speech.get('catchphrases', [])
+            if catchphrases:
+                text += f"🗣️ **Любимые фразы:**\n"
+                for phrase in catchphrases[:3]:  # Первые 3
+                    text += f"• \"{phrase}\"\n"
+        
+        text += f"\n📁 **ID файла:** `{character.get('id', 'unknown')}`"
+        
+        await update.message.reply_text(text, parse_mode='Markdown')
+
+    async def relationship_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Информация об отношениях"""
+        if not self.commands_enabled:
+            return
+        
+        character = character_loader.get_current_character()
+        
+        if not character:
+            await update.message.reply_text("❌ Персонаж не загружен!")
+            return
+        
+        relationship = character.get('current_relationship', {})
+        
+        if not relationship:
+            await update.message.reply_text("❌ Информация об отношениях недоступна!")
+            return
+        
+        name = character.get('name', 'Персонаж')
+        
+        text = f"💕 **ОТНОШЕНИЯ С {name.upper()}**\n\n"
+        
+        # Основная информация
+        rel_type = relationship.get('type', 'неопределенные')
+        stage = relationship.get('stage', 'неизвестна')
+        intimacy = relationship.get('intimacy_level', 0)
+        
+        text += f"💫 **Тип:** {rel_type}\n"
+        text += f"🎭 **Стадия:** {stage}\n"
+        text += f"❤️ **Уровень близости:** {intimacy}/10\n\n"
+        
+        # Предыстория
+        backstory = relationship.get('backstory', '')
+        if backstory:
+            text += f"📖 **Как познакомились:**\n{backstory[:300]}"
+            if len(backstory) > 300:
+                text += "..."
+            text += "\n\n"
+        
+        # Текущая динамика
+        current_dynamic = relationship.get('current_dynamic', '')
+        if current_dynamic:
+            text += f"🌟 **Сейчас:**\n{current_dynamic[:200]}"
+            if len(current_dynamic) > 200:
+                text += "..."
+            text += "\n\n"
+        
+        # Даты
+        created_at = relationship.get('created_at', '')
+        if created_at:
+            try:
+                from datetime import datetime
+                created_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                text += f"📅 **Начало отношений:** {created_date.strftime('%d.%m.%Y')}\n"
+            except:
+                pass
+        
+        # Совместные активности (если есть)
+        shared_activities = character.get('default_relationship', {}).get('shared_activities', [])
+        if shared_activities:
+            text += f"\n🎯 **Что делаем вместе:**\n"
+            for activity in shared_activities[:4]:
+                text += f"• {activity}\n"
+        
+        await update.message.reply_text(text, parse_mode='Markdown')
+
+    async def intimacy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Изменение уровня близости (только для отладки)"""
+        if not self.commands_enabled:
+            return
+        
+        if not context.args:
+            await update.message.reply_text(
+                "❓ Использование: `/intimacy <уровень>`\n"
+                "Уровень от 1 до 10\n"
+                "Например: `/intimacy 7`"
+            )
+            return
+        
+        try:
+            new_level = int(context.args[0])
+            if not 1 <= new_level <= 10:
+                raise ValueError()
+        except ValueError:
+            await update.message.reply_text("❌ Уровень должен быть от 1 до 10!")
+            return
+        
+        character = character_loader.get_current_character()
+        if not character:
+            await update.message.reply_text("❌ Персонаж не загружен!")
+            return
+        
+        # Обновляем уровень близости
+        character_loader.update_relationship_progress({
+            'intimacy_level': new_level
+        })
+        
+        name = character.get('name', 'Персонаж')
+        
+        # Генерируем реакцию персонажа на изменение близости
+        reaction_messages = await self._generate_intimacy_change_response(name, new_level, character)
+        
+        current_state = await self.optimized_ai.get_simple_mood_calculation(
+            self.psychological_core
+        )
+        
+        await self.send_telegram_messages_with_timing(
+            chat_id=update.effective_chat.id,
+            messages=reaction_messages,
+            current_state=current_state
+        )
+
+    async def _generate_intimacy_change_response(self, name: str, new_level: int, character: dict) -> List[str]:
+        """Генерирует реакцию на изменение близости"""
+        
+        if new_level <= 3:
+            level_desc = "знакомство"
+            messages = [f"Хм, кажется мы только знакомимся... 😊", "Но это нормально! Всё постепенно! ✨"]
+        elif new_level <= 5:
+            level_desc = "дружба"
+            messages = [f"Мы хорошие друзья! 😊", "Мне нравится с тобой общаться! 💕"]
+        elif new_level <= 7:
+            level_desc = "близкая дружба"
+            messages = [f"Ты стал мне очень близок... 😊", "Кажется, между нами что-то особенное! ✨"]
+        elif new_level <= 9:
+            level_desc = "романтические отношения"
+            if 'марин' in name.lower():
+                messages = [
+                    "Аааа! 😍 Мы так близки!",
+                    "Мне так хорошо с тобой! Ты понимаешь мои увлечения!",
+                    "Я... я тебя очень люблю! 💕"
+                ]
+            else:
+                messages = [f"Мы так близки... 😊💕", "Я очень тебя люблю! ✨"]
+        else:
+            level_desc = "глубокая любовь"
+            if 'марин' in name.lower():
+                messages = [
+                    "Я не могу без тебя! 😍💕",
+                    "Ты самый важный человек в моей жизни!",
+                    "Хочу быть с тобой всегда! ✨",
+                    "Может... может мы навсегда? 💍"
+                ]
+            else:
+                messages = [f"Ты моя любовь... 💕", "Не представляю жизни без тебя! ✨"]
+        
+        return messages
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка команды /help в естественном стиле"""
