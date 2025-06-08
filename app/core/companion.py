@@ -461,7 +461,7 @@ class RealisticAICompanion:
 
                 if changes["activity_ended"]:
                     activity = changes["activity_ended"]
-                    await self._notify_activity_end(activity)
+                    await self.virtual_life._notify_activity_end(activity)
 
         except Exception as e:
             self.logger.error(f"Ошибка обновления виртуальной жизни: {e}")

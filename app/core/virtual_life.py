@@ -266,9 +266,20 @@ class VirtualLifeManager:
                 """, (activity_id,))
                 
                 conn.commit()
-                
+
         except Exception as e:
             self.logger.error(f"Ошибка завершения активности: {e}")
+
+    async def _notify_activity_end(self, activity: VirtualActivity):
+        """Отправляет уведомление о завершении активности"""
+        messages = [
+            f"Я закончила {activity.description}.",
+            "Теперь я свободна пообщаться!",
+        ]
+
+        # Для простоты пока выводим уведомление в лог
+        for msg in messages:
+            self.logger.info(msg)
     
     def get_current_context_for_ai(self) -> str:
         """Возвращает контекст текущей активности для AI"""
