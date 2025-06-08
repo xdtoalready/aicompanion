@@ -22,6 +22,9 @@ from .memory import AdvancedMemorySystem
 from .ai_client import OptimizedAI
 from .typing_simulator import TypingSimulator, TypingIndicator
 
+# Консолидация памяти
+from .memory_consolidation_v2 import EmotionalMemoryConsolidator, enhance_existing_memories_with_emotions
+
 # Абсолютный импорт для database (так как sys.path добавлен)
 from app.database.memory_manager import EnhancedMemorySystem
 
@@ -83,6 +86,12 @@ class RealisticAICompanion:
         
         self.commands_enabled = True
         
+        self.emotional_memory_consolidator = EmotionalMemoryConsolidator(
+            db_path=db_path,
+            ai_client=self.ai_client,
+            config=config
+        )
+
         self.setup_realistic_scheduler()
 
     def get_current_character_info(self) -> Dict[str, Any]:
@@ -108,28 +117,242 @@ class RealisticAICompanion:
     def setup_realistic_scheduler(self):
         """Настройка реалистичного планировщика"""
         
-        # Основной цикл сознания - каждые 30 минут
+        # Существующие задачи...
         self.scheduler.add_job(
             self.consciousness_cycle,
             IntervalTrigger(minutes=30),
             id='consciousness'
         )
         
-        # Обновление физиологического состояния - каждый час
+        # ЗАМЕНЯЕМ на эмоциональную консолидацию
         self.scheduler.add_job(
-            self.update_physical_state,
-            IntervalTrigger(hours=1),
-            id='physical_update'
+            self.run_emotional_memory_consolidation,
+            IntervalTrigger(hours=6),
+            id='emotional_memory_consolidation'
         )
         
-        # Консолидация памяти - раз в день
+        # Глубокая эмоциональная консолидация раз в день
         self.scheduler.add_job(
-            self.daily_memory_consolidation,
+            self.deep_emotional_consolidation,
             IntervalTrigger(days=1),
-            id='memory_consolidation'
+            id='deep_emotional_consolidation'
+        )
+        
+        # Анализ эмоций новых воспоминаний каждые 2 часа
+        self.scheduler.add_job(
+            self.analyze_recent_memories_emotions,
+            IntervalTrigger(hours=2),
+            id='emotion_analysis'
         )
         
         self.scheduler.start()
+
+    async def run_memory_consolidation(self):
+        """Запуск автоматической консолидации памяти"""
+        try:
+            self.logger.info("🧠 Запуск консолидации памяти...")
+            await self.memory_consolidator.run_consolidation_cycle()
+        except Exception as e:
+            self.logger.error(f"Ошибка консолидации памяти: {e}")
+
+    async def deep_memory_consolidation(self):
+        """Глубокая консолидация и анализ воспоминаний"""
+        try:
+            # Обычная консолидация
+            await self.memory_consolidator.run_consolidation_cycle()
+            
+            # Дополнительный анализ паттернов
+            await self._analyze_memory_patterns()
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка глубокой консолидации: {e}")
+
+    async def run_emotional_memory_consolidation(self):
+        """Запуск эмоциональной консолидации"""
+        try:
+            self.logger.info("🧠💕 Запуск эмоциональной консолидации...")
+            await self.emotional_memory_consolidator.run_emotional_consolidation_cycle()
+        except Exception as e:
+            self.logger.error(f"Ошибка эмоциональной консолидации: {e}")
+
+    async def deep_emotional_consolidation(self):
+        """Глубокая эмоциональная консолидация"""
+        try:
+            # Основная консолидация
+            await self.emotional_memory_consolidator.run_emotional_consolidation_cycle()
+            
+            # Анализ эмоциональных паттернов пользователя
+            await self._analyze_emotional_patterns()
+            
+            # Обновление эмоциональных меток старых воспоминаний
+            await enhance_existing_memories_with_emotions(
+                self.enhanced_memory.db_manager.db_path,
+                self.ai_client,
+                self.config
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка глубокой эмоциональной консолидации: {e}")
+
+    async def analyze_recent_memories_emotions(self):
+        """Анализирует эмоции недавних воспоминаний"""
+        try:
+            # Улучшаем воспоминания без эмоциональных меток
+            await enhance_existing_memories_with_emotions(
+                self.enhanced_memory.db_manager.db_path,
+                self.ai_client,
+                self.config
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка анализа эмоций: {e}")
+
+    async def _analyze_emotional_patterns(self):
+        """Анализирует эмоциональные паттерны пользователя"""
+        
+        try:
+            import sqlite3
+            with sqlite3.connect(self.enhanced_memory.db_manager.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Получаем эмоциональную статистику за последний месяц
+                month_ago = (datetime.now() - timedelta(days=30)).isoformat()
+                cursor.execute("""
+                    SELECT emotion_type, COUNT(*), AVG(emotional_intensity), AVG(importance)
+                    FROM memories 
+                    WHERE created_at >= ? AND emotion_type IS NOT NULL
+                    GROUP BY emotion_type
+                    ORDER BY COUNT(*) DESC
+                """, (month_ago,))
+                
+                emotional_patterns = cursor.fetchall()
+                
+                if not emotional_patterns:
+                    return
+                
+                # Создаём анализ для AI
+                pattern_text = "Эмоциональные паттерны пользователя за месяц:\n"
+                for emotion, count, avg_intensity, avg_importance in emotional_patterns:
+                    pattern_text += f"- {emotion}: {count} раз (интенсивность {avg_intensity:.1f}, важность {avg_importance:.1f})\n"
+                
+                # Анализируем что это значит для отношений
+                analysis_prompt = """Проанализируй эмоциональные паттерны пользователя в общении с AI-компаньоном.
+                
+Определи:
+1. Какие эмоции доминируют?
+2. Что это говорит о личности пользователя?
+3. Как можно улучшить взаимодействие?
+4. На что обращать внимание в будущем?
+
+Ответь кратко, 2-3 предложения на каждый пункт."""
+
+                response = await self.ai_client.chat.completions.create(
+                    model=self.config.get('ai', {}).get('model'),
+                    messages=[
+                        {"role": "system", "content": analysis_prompt},
+                        {"role": "user", "content": pattern_text}
+                    ],
+                    max_tokens=400,
+                    temperature=0.3
+                )
+                
+                analysis = response.choices[0].message.content.strip()
+                
+                # Сохраняем анализ как специальное воспоминание
+                cursor.execute("""
+                    INSERT INTO memories 
+                    (character_id, memory_type, content, importance, 
+                     emotional_intensity, emotion_type, is_consolidated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    1,
+                    "emotional_analysis",
+                    f"Эмоциональный анализ пользователя: {analysis}",
+                    9,  # Высокая важность
+                    7.0,  # Средне-высокая интенсивность
+                    "analytical",
+                    True
+                ))
+                
+                conn.commit()
+                
+                self.logger.info("🔍💕 Эмоциональный анализ пользователя сохранён")
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка анализа эмоциональных паттернов: {e}")
+
+    async def _analyze_memory_patterns(self):
+        """Анализирует паттерны в воспоминаниях для улучшения отношений"""
+        
+        # Получаем консолидированные воспоминания
+        consolidated_memories = self._get_consolidated_memories()
+        
+        if not consolidated_memories:
+            return
+        
+        # Анализируем что важно для пользователя
+        analysis_prompt = """Проанализируй воспоминания AI-компаньона о пользователе.
+        Определи:
+        1. Основные интересы и предпочтения
+        2. Паттерны поведения и общения  
+        3. Что важно для пользователя в отношениях
+        4. Как можно улучшить взаимодействие
+        
+        Ответь кратко, 2-3 предложения на каждый пункт."""
+        
+        try:
+            response = await self.ai_client.chat.completions.create(
+                model=self.config.get('ai', {}).get('model'),
+                messages=[
+                    {"role": "system", "content": analysis_prompt},
+                    {"role": "user", "content": f"Воспоминания:\n{consolidated_memories}"}
+                ],
+                max_tokens=300,
+                temperature=0.3
+            )
+            
+            analysis = response.choices[0].message.content.strip()
+            
+            # Сохраняем анализ как специальное воспоминание
+            self._save_memory_analysis(analysis)
+            
+            self.logger.info("🔍 Анализ паттернов памяти завершён")
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка анализа паттернов: {e}")
+
+    def _get_consolidated_memories(self) -> str:
+        """Получает консолидированные воспоминания для анализа"""
+        try:
+            import sqlite3
+            with sqlite3.connect(self.enhanced_memory.db_manager.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT content FROM memories 
+                    WHERE is_consolidated = 1 
+                    AND consolidation_level IN ('medium_term', 'long_term')
+                    ORDER BY importance DESC, last_consolidated DESC
+                    LIMIT 20
+                """)
+                
+                memories = [row[0] for row in cursor.fetchall()]
+                return "\n".join(memories)
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка получения консолидированных воспоминаний: {e}")
+            return ""
+        
+    def _save_memory_analysis(self, analysis: str):
+        """Сохраняет результат анализа памяти"""
+        try:
+            self.enhanced_memory.add_conversation(
+                "[АНАЛИЗ_ПАМЯТИ]", 
+                [analysis], 
+                "analytical", 
+                "insightful"
+            )
+        except Exception as e:
+            self.logger.error(f"Ошибка сохранения анализа: {e}")
     
     async def consciousness_cycle(self):
         """Реалистичный цикл сознания с многосообщенческими инициативами"""

@@ -50,6 +50,11 @@ class TelegramCompanion(RealisticAICompanion):
         self.app.add_handler(CommandHandler("switch", self.switch_command))
         self.app.add_handler(CommandHandler("charinfo", self.charinfo_command))
         self.app.add_handler(CommandHandler("relationship", self.relationship_command))
+
+        # Для коснолидации памяти (проверка)
+        self.app.add_handler(CommandHandler("emotion_stats", self.emotion_stats_command))
+        self.app.add_handler(CommandHandler("analyze_emotions", self.analyze_emotions_command))
+        self.app.add_handler(CommandHandler("emotional_search", self.emotional_search_command))
         
         # Команды для отладки (будут убраны позже)
         if self.commands_enabled:
@@ -64,6 +69,206 @@ class TelegramCompanion(RealisticAICompanion):
         
         # Обработка ошибок
         self.app.add_error_handler(self.error_handler)
+
+    async def memory_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Статистика системы памяти"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            import sqlite3
+            db_path = self.enhanced_memory.db_manager.db_path
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Общая статистика
+                cursor.execute("SELECT COUNT(*) FROM memories")
+                total_memories = cursor.fetchone()[0]
+                
+                # Консолидированные воспоминания
+                cursor.execute("SELECT COUNT(*) FROM memories WHERE is_consolidated = 1")
+                consolidated_count = cursor.fetchone()[0]
+                
+                # Архивированные
+                cursor.execute("SELECT COUNT(*) FROM memories WHERE is_archived = 1")
+                archived_count = cursor.fetchone()[0]
+                
+                # По уровням консолидации
+                cursor.execute("""
+                    SELECT consolidation_level, COUNT(*) 
+                    FROM memories 
+                    WHERE consolidation_level IS NOT NULL 
+                    GROUP BY consolidation_level
+                """)
+                levels = cursor.fetchall()
+                
+                text = f"🧠 **СТАТИСТИКА ПАМЯТИ**\n\n"
+                text += f"📊 **Общая статистика:**\n"
+                text += f"• Всего воспоминаний: {total_memories}\n"
+                text += f"• Консолидированных: {consolidated_count}\n" 
+                text += f"• Архивированных: {archived_count}\n\n"
+                
+                if levels:
+                    text += f"🔄 **По уровням консолидации:**\n"
+                    for level, count in levels:
+                        text += f"• {level}: {count}\n"
+                
+                # Размер памяти в токенах (приблизительно)
+                cursor.execute("SELECT SUM(LENGTH(content)) FROM memories WHERE is_archived != 1")
+                total_chars = cursor.fetchone()[0] or 0
+                approx_tokens = total_chars // 4  # Приблизительно 4 символа = 1 токен
+                
+                text += f"\n💾 **Объём памяти:**\n"
+                text += f"• Символов: {total_chars:,}\n"
+                text += f"• ≈ Токенов: {approx_tokens:,}\n"
+                
+                efficiency = (archived_count / total_memories * 100) if total_memories > 0 else 0
+                text += f"• Эффективность сжатия: {efficiency:.1f}%"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка получения статистики: {e}")
+
+    async def emotion_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Статистика эмоциональной памяти"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            import sqlite3
+            db_path = self.enhanced_memory.db_manager.db_path
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Общая статистика эмоций
+                cursor.execute("""
+                    SELECT emotion_type, COUNT(*), AVG(emotional_intensity), AVG(importance)
+                    FROM memories 
+                    WHERE emotion_type IS NOT NULL AND is_deeply_archived != 1
+                    GROUP BY emotion_type
+                    ORDER BY COUNT(*) DESC
+                """)
+                
+                emotion_stats = cursor.fetchall()
+                
+                text = "🎭 **ЭМОЦИОНАЛЬНАЯ ПАМЯТЬ**\n\n"
+                
+                if emotion_stats:
+                    text += "📊 **Статистика по эмоциям:**\n"
+                    for emotion, count, avg_intensity, avg_importance in emotion_stats[:6]:
+                        emotion_emoji = {
+                            'joy': '😊', 'love': '💕', 'excitement': '🎉', 
+                            'surprise': '😲', 'calm': '😌', 'sadness': '😔',
+                            'anger': '😠', 'fear': '😨'
+                        }.get(emotion, '🎭')
+                        
+                        text += f"{emotion_emoji} **{emotion}**: {count} воспоминаний\n"
+                        text += f"   Интенсивность: {avg_intensity:.1f}, Важность: {avg_importance:.1f}\n"
+                    
+                    # Топ эмоционально ярких воспоминаний
+                    cursor.execute("""
+                        SELECT content, emotion_type, emotional_intensity,
+                            (importance + emotional_intensity * 0.3) as score
+                        FROM memories 
+                        WHERE emotional_intensity >= 7 AND is_deeply_archived != 1
+                        ORDER BY score DESC
+                        LIMIT 3
+                    """)
+                    
+                    top_memories = cursor.fetchall()
+                    if top_memories:
+                        text += f"\n🌟 **Самые яркие моменты:**\n"
+                        for content, emotion, intensity, score in top_memories:
+                            emotion_emoji = {
+                                'joy': '😊', 'love': '💕', 'excitement': '🎉'
+                            }.get(emotion, '✨')
+                            short_content = content[:40] + "..." if len(content) > 40 else content
+                            text += f"{emotion_emoji} {short_content} ({intensity:.1f})\n"
+                
+                else:
+                    text += "📝 Эмоциональные метки ещё добавляются...\n"
+                    text += "💡 Система проанализирует воспоминания автоматически"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка получения эмоциональной статистики: {e}")
+
+    async def analyze_emotions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Принудительный анализ эмоций для воспоминаний"""
+        if not self.commands_enabled:
+            return
+
+        await update.message.reply_text("🎭 Запуск анализа эмоций для воспоминаний...")
+
+        try:
+            # Запускаем анализ эмоций
+            await enhance_existing_memories_with_emotions(
+                self.enhanced_memory.db_manager.db_path,
+                self.ai_client,
+                self.config
+            )
+            
+            await update.message.reply_text(
+                "✅ Анализ эмоций завершён!\n\n"
+                "💡 Используйте /emotion_stats для просмотра результатов"
+            )
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка анализа эмоций: {e}")
+
+    async def emotional_search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Поиск воспоминаний по эмоциям"""
+        if not self.commands_enabled:
+            return
+        
+        if not context.args:
+            await update.message.reply_text(
+                "🔍 **Поиск по эмоциям**\n\n"
+                "Использование:\n"
+                "• `/emotional_search joy` - радостные моменты\n"
+                "• `/emotional_search love` - моменты любви\n"
+                "• `/emotional_search excitement` - возбуждение\n"
+                "• `/emotional_search calm` - спокойные моменты\n\n"
+                "Доступные эмоции: joy, love, excitement, surprise, calm, sadness, anger, fear",
+                parse_mode='Markdown'
+            )
+            return
+        
+        emotion_type = context.args[0].lower()
+        
+        try:
+            emotional_memories = self.enhanced_memory.db_manager.get_emotional_memories(
+                emotion_type=emotion_type, 
+                min_intensity=6.0,
+                limit=5
+            )
+            
+            if emotional_memories:
+                emotion_emoji = {
+                    'joy': '😊', 'love': '💕', 'excitement': '🎉', 
+                    'surprise': '😲', 'calm': '😌', 'sadness': '😔',
+                    'anger': '😠', 'fear': '😨'
+                }.get(emotion_type, '🎭')
+                
+                text = f"{emotion_emoji} **Воспоминания с эмоцией '{emotion_type}':**\n\n"
+                
+                for memory in emotional_memories:
+                    intensity = memory['emotional_intensity']
+                    content = memory['content']
+                    short_content = content[:60] + "..." if len(content) > 60 else content
+                    text += f"💫 **{intensity:.1f}/10** - {short_content}\n\n"
+            else:
+                text = f"🔍 Не найдено ярких воспоминаний с эмоцией '{emotion_type}'\n\n"
+                text += "💡 Попробуйте другую эмоцию или подождите пока система проанализирует больше воспоминаний"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка поиска: {e}")
 
     async def characters_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать доступных персонажей"""
