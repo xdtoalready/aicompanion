@@ -23,7 +23,7 @@ from .ai_client import OptimizedAI
 from .typing_simulator import TypingSimulator, TypingIndicator
 
 # Консолидация памяти
-from .memory_consolidation_v2 import EmotionalMemoryConsolidator, enhance_existing_memories_with_emotions
+from .memory_consolidation import EmotionalMemoryConsolidator, enhance_existing_memories_with_emotions
 
 # Абсолютный импорт для database (так как sys.path добавлен)
 from app.database.memory_manager import EnhancedMemorySystem
