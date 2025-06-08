@@ -13,6 +13,8 @@ from openai import AsyncOpenAI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+from .virtual_life import VirtualLifeManager, VirtualActivity
+
 # Добавляем корневой путь в sys.path ОДИН РАЗ
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
@@ -75,6 +77,12 @@ class RealisticAICompanion:
             'natural_pauses': typing_config.get('natural_pauses', True)
         })
         self.typing_indicator = TypingIndicator()
+
+        # Система виртуальной жизни
+        self.virtual_life = VirtualLifeManager(
+            db_path=config.get('database', {}).get('path', 'data/companion.db'),
+            character_loader=character_loader,
+        )
         
         # Планировщик
         self.scheduler = AsyncIOScheduler()
@@ -144,7 +152,14 @@ class RealisticAICompanion:
             IntervalTrigger(hours=2),
             id='emotion_analysis'
         )
-        
+
+        # Обновление виртуальной жизни персонажа каждые минуту
+        self.scheduler.add_job(
+            self.update_virtual_life,
+            IntervalTrigger(minutes=1),
+            id='virtual_life_update'
+        )
+
         self.scheduler.start()
 
     async def run_memory_consolidation(self):
@@ -433,6 +448,68 @@ class RealisticAICompanion:
         # Финальная проверка с рандомом (более мягкая для частых проверок)
         threshold = 5 - (initiative_desire * 0.4)  # Немного понизили порог
         return random.random() > (threshold / 10)
+
+    async def update_virtual_life(self):
+        """Обновляет виртуальную жизнь персонажа"""
+        try:
+            changes = self.virtual_life.check_and_update_activities()
+
+            if changes["status_changed"]:
+                if changes["activity_started"]:
+                    activity = changes["activity_started"]
+                    await self._notify_activity_start(activity)
+
+                if changes["activity_ended"]:
+                    activity = changes["activity_ended"]
+                    await self._notify_activity_end(activity)
+
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления виртуальной жизни: {e}")
+
+    async def _notify_activity_start(self, activity: VirtualActivity):
+        """Уведомляет о начале активности"""
+        messages = [
+            f"Кстати, я сейчас {activity.description}! ✨",
+            f"Буду {activity.activity_type} до {activity.end_time.strftime('%H:%M')}",
+            "Но ты всегда можешь мне писать! 💕",
+        ]
+
+        if hasattr(self, 'allowed_users') and self.allowed_users:
+            current_state = await self.optimized_ai.get_simple_mood_calculation(
+                self.psychological_core
+            )
+
+            for user_id in self.allowed_users:
+                try:
+                    await self.send_telegram_messages_with_timing(
+                        chat_id=user_id,
+                        messages=messages,
+                        current_state=current_state,
+                    )
+                except Exception as e:
+                    self.logger.error(f"Ошибка отправки уведомления активности: {e}")
+
+    async def _notify_activity_end(self, activity: VirtualActivity):
+        """Уведомляет о завершении активности"""
+        messages = [
+            f"Я закончила {activity.description}.",
+            "Теперь я свободна пообщаться!",
+        ]
+
+        if hasattr(self, 'allowed_users') and self.allowed_users:
+            current_state = await self.optimized_ai.get_simple_mood_calculation(
+                self.psychological_core
+            )
+
+            for user_id in self.allowed_users:
+                try:
+                    await self.send_telegram_messages_with_timing(
+                        chat_id=user_id,
+                        messages=messages,
+                        current_state=current_state,
+                    )
+                except Exception as e:
+                    self.logger.error(f"Ошибка отправки уведомления активности: {e}")
     
     async def create_automatic_schedule(self):
         """Создает автоматическое расписание для персонажа"""
