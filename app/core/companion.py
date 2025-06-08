@@ -934,7 +934,10 @@ class RealisticAICompanion:
     async def start(self):
         """Запуск компаньона"""
         self.logger.info("Реалистичный AI-компаньон с многосообщенческими ответами запущен")
-        
+
+        # Создаем расписание виртуальной жизни один раз при запуске
+        await self.create_automatic_schedule()
+
         while True:
             await asyncio.sleep(1)
     
