@@ -185,6 +185,20 @@ class OptimizedAI:
                 system_prompt += f"\n• Обращения к партнёру: {', '.join(pet_names[:2])}"
         
         system_prompt += f"\n\nОТВЕЧАЙ именно как {name}, сохраняя её уникальность!"
+
+        virtual_context = context.get('virtual_life_context', '')
+        if virtual_context:
+            system_prompt += f"""
+
+    ВИРТУАЛЬНАЯ ЖИЗНЬ (ТЕКУЩЕЕ СОСТОЯНИЕ):
+    {virtual_context}
+
+    ПОВЕДЕНИЕ В ЗАВИСИМОСТИ ОТ АКТИВНОСТИ:
+    • Если занята делом - упоминай это естественно: "сейчас шью корсет", "на работе сейчас"
+    • Если свободна - можешь предлагать активности: "может пойдем гулять?", "хочу показать новый костюм"
+    • Делись планами: "завтра иду на конвент", "послезавтра встречаюсь с подругами"
+    • Реагируй на время: утром - бодрая, вечером - расслабленная
+    """
         
         return system_prompt
     
@@ -226,6 +240,10 @@ class OptimizedAI:
         
         logging.info(f"Генерация ответа для {character_name}, тип вопроса: {question_type}")
         
+        if hasattr(self, 'virtual_life_manager'):
+                virtual_context = self.virtual_life_manager.get_current_context_for_ai()
+                context['virtual_life_context'] = virtual_context
+
         # Строим промпт с учётом персонажа
         system_prompt = self._build_character_system_prompt(context)
         

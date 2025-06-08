@@ -41,11 +41,11 @@ class TelegramCompanion(RealisticAICompanion):
     def setup_handlers(self):
         """Настройка обработчиков Telegram"""
         
-        # Команды (временно оставляем для отладки)
+        # Команды
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
 
-        # НОВЫЕ команды для персонажей
+        # Дополнительные команды для персонажа
         self.app.add_handler(CommandHandler("characters", self.characters_command))
         self.app.add_handler(CommandHandler("switch", self.switch_command))
         self.app.add_handler(CommandHandler("charinfo", self.charinfo_command))
@@ -56,6 +56,9 @@ class TelegramCompanion(RealisticAICompanion):
         self.app.add_handler(CommandHandler("analyze_emotions", self.analyze_emotions_command))
         self.app.add_handler(CommandHandler("emotional_search", self.emotional_search_command))
         
+        # Проверка состояния расписания
+        self.app.add_handler(CommandHandler("schedule", self.schedule_command))
+
         # Команды для отладки (будут убраны позже)
         if self.commands_enabled:
             self.app.add_handler(CommandHandler("status", self.status_command))
@@ -130,6 +133,47 @@ class TelegramCompanion(RealisticAICompanion):
             
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка получения статистики: {e}")
+
+    async def schedule_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показать расписание персонажа"""
+        if not self.commands_enabled:
+            return
+        
+        activities = self.virtual_life.get_upcoming_activities(72)  # 3 дня
+        
+        if not activities:
+            await update.message.reply_text(
+                "📅 У меня пока нет конкретных планов!\n\n"
+                "💡 Планы создаются автоматически или когда я их упоминаю в разговоре"
+            )
+            return
+        
+        text = "📅 **МОИ ПЛАНЫ НА БЛИЖАЙШЕЕ ВРЕМЯ:**\n\n"
+        
+        current_day = None
+        for activity in activities[:10]:  # Показываем максимум 10
+            activity_day = activity.start_time.strftime('%d.%m')
+            
+            if activity_day != current_day:
+                text += f"**{activity.start_time.strftime('%d.%m (%A)')}:**\n"
+                current_day = activity_day
+            
+            start_time = activity.start_time.strftime('%H:%M')
+            end_time = activity.end_time.strftime('%H:%M')
+            
+            activity_emoji = {
+                'cosplay': '🎭',
+                'work': '💼', 
+                'hobby': '🎨',
+                'social': '👥',
+                'rest': '😌'
+            }.get(activity.activity_type, '📋')
+            
+            text += f"{activity_emoji} {start_time}-{end_time}: {activity.description}\n"
+        
+        text += f"\n💡 Всего запланировано: {len(activities)} активностей"
+        
+        await update.message.reply_text(text, parse_mode='Markdown')
 
     async def emotion_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Статистика эмоциональной памяти"""

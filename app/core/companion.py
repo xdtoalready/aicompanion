@@ -117,14 +117,14 @@ class RealisticAICompanion:
     def setup_realistic_scheduler(self):
         """Настройка реалистичного планировщика"""
         
-        # Существующие задачи...
+        # Проверка желания написать каждые 5 минут
         self.scheduler.add_job(
             self.consciousness_cycle,
-            IntervalTrigger(minutes=30),
+            IntervalTrigger(minutes=5),
             id='consciousness'
         )
         
-        # ЗАМЕНЯЕМ на эмоциональную консолидацию
+        # Остальные задачи остаются без изменений...
         self.scheduler.add_job(
             self.run_emotional_memory_consolidation,
             IntervalTrigger(hours=6),
@@ -392,12 +392,12 @@ class RealisticAICompanion:
             self.logger.error(f"Ошибка в цикле сознания: {e}")
     
     async def _should_initiate_realistically(self, current_state: Dict) -> bool:
-        """Реалистичное решение об инициативе"""
+        """Улучшенное решение об инициативе с учетом времени"""
         
         initiative_desire = current_state.get("initiative_desire", 0)
         
-        # Базовые условия
-        if initiative_desire < 4:
+        # Базовые условия (более мягкие для частых проверок)
+        if initiative_desire < 3:  # Было 4, теперь 3
             return False
         
         # Проверяем время последнего сообщения
@@ -411,17 +411,79 @@ class RealisticAICompanion:
         current_hour = datetime.now().hour
         activity_context = current_state.get("activity_context")
         
-        # Рабочее время - реже пишет
-        if activity_context == "work_time" and random.random() < 0.7:
-            return False
+        # НОВОЕ: Более активное поведение в определенные часы
+        peak_hours = [9, 12, 16, 19, 22]  # Часы пик активности
+        if current_hour in peak_hours:
+            initiative_desire += 1
+        
+        # Рабочее время - реже пишет, но не полностью блокирует
+        if activity_context == "work_time":
+            if random.random() < 0.8:  # Было 0.7, стало 0.8 (меньше блокировки)
+                return False
         
         # Вечер - больше желания общаться
         if activity_context == "evening_time":
             initiative_desire += 2
         
-        # Финальная проверка с рандомом
-        threshold = 6 - (initiative_desire * 0.3)
+        # НОВОЕ: Учитываем персонажа (Марин более активная)
+        character = character_loader.get_current_character()
+        if character and 'марин' in character.get('name', '').lower():
+            initiative_desire += 1  # Марин чаще пишет
+        
+        # Финальная проверка с рандомом (более мягкая для частых проверок)
+        threshold = 5 - (initiative_desire * 0.4)  # Немного понизили порог
         return random.random() > (threshold / 10)
+    
+    async def create_automatic_schedule(self):
+        """Создает автоматическое расписание для персонажа"""
+        
+        character = character_loader.get_current_character()
+        if not character:
+            return
+        
+        name = character.get('name', '').lower()
+        
+        # Базовое расписание для всех персонажей
+        base_schedule = [
+            ("work", "работаю/учусь", 9, 5, 1.0, 40),  # 9 утра, 5 часов
+            ("rest", "отдыхаю дома", 14, 1, 0.5, 10),   # 14:00, 1 час
+            ("hobby", "занимаюсь хобби", 16, 2, 2.0, 30), # 16:00, 2 часа
+            ("social", "общаюсь с друзьями", 19, 1.5, 1.5, 20) # 19:00, 1.5 часа
+        ]
+        
+        # Специальное расписание для Марин
+        if 'марин' in name or 'китагава' in name:
+            cosplay_schedule = [
+                ("cosplay", "работаю над новым костюмом", 15, 3, 2.5, 35),
+                ("cosplay", "фотосессия в готовом костюме", 11, 2, 3.0, 25),
+                ("social", "иду на аниме-конвент", 10, 6, 3.0, 50),
+                ("hobby", "смотрю новое аниме", 20, 2, 2.0, 15)
+            ]
+            base_schedule.extend(cosplay_schedule)
+        
+        # Планируем на следующие 3 дня
+        for day_offset in range(1, 4):
+            target_date = datetime.now() + timedelta(days=day_offset)
+            
+            # Выбираем случайные активности для этого дня
+            daily_activities = random.sample(base_schedule, k=random.randint(2, 4))
+            
+            for activity_type, description, start_hour, duration, mood_effect, energy_cost in daily_activities:
+                start_time = target_date.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+                
+                # Добавляем случайность ±30 минут
+                start_time += timedelta(minutes=random.randint(-30, 30))
+                
+                self.virtual_life.schedule_activity(
+                    activity_type=activity_type,
+                    description=description,
+                    start_time=start_time,
+                    duration_hours=duration,
+                    mood_effect=mood_effect,
+                    energy_cost=energy_cost
+                )
+        
+        self.logger.info("📅 Автоматическое расписание создано на 3 дня")
     
     async def send_initiative_messages(self, current_state: Dict):
         """Отправка инициативных сообщений с БД контекстом"""
