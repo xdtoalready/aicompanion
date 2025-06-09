@@ -39,6 +39,13 @@
         "show_typing_indicator": true,
         "natural_pauses": true,
     },
+    "messaging": {
+        "min_messages": 3,
+        "max_messages": 7,
+        "target_sentences": 3,
+        "use_emojis": true,
+        "max_emojis": 2
+    },
     "integrations": {
         "telegram": {
             "enabled": true,
