@@ -187,6 +187,7 @@ sudo systemctl status ai-companion.service
     "model": "deepseek/deepseek-chat",
     "temperature": 0.8
   },
+  "character_profile_path": "characters/marin_kitagawa.json",
   "character": {
     "name": "Алиса",
     "personality_traits": {
@@ -218,6 +219,28 @@ sudo systemctl status ai-companion.service
 - `max_daily_initiatives` - максимум инициативных сообщений в день
 - `min_hours_between_initiatives` - минимум часов между сообщениями
 - `consciousness_cycle_minutes` - интервал "циклов сознания"
+
+### Профиль персонажа
+
+Полный набор характеристик можно загрузить из файла или прописать в конфигурации.
+
+```json
+{
+  "character_profile_path": "characters/marin_kitagawa.json"
+}
+```
+
+Или использовать встроенные данные:
+
+```json
+{
+  "character_profile": {
+    "id": "my_hero",
+    "name": "Марин Китагава",
+    "age": 20
+  }
+}
+```
 
 ## 📱 Telegram интеграция
 
