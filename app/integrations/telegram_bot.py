@@ -313,6 +313,18 @@ class TelegramCompanion(RealisticAICompanion):
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка получения статистики: {e}")
 
+    async def _get_today_ai_plans(self) -> List[Dict]:
+        """Получает планы ИИ на сегодня (делегирует к базовому классу)"""
+        return await super()._get_today_ai_plans()
+
+    async def force_generate_daily_plan(self) -> bool:
+        """Принудительно генерирует план дня (делегирует к базовому классу)"""
+        return await super().force_generate_daily_plan()
+
+    def get_planning_stats(self) -> Dict[str, Any]:
+        """Получает статистику планирования (делегирует к базовому классу)"""
+        return super().get_planning_stats()
+
     # Вспомогательный метод:
     async def _get_today_ai_plans(self) -> List[Dict]:
         """Получает планы ИИ на сегодня"""

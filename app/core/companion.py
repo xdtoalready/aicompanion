@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, List
 from openai import AsyncOpenAI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger 
 
 # Импорт character_loader
 from .character_loader import get_character_loader
@@ -158,12 +159,10 @@ class RealisticAICompanion:
             self.consciousness_cycle, IntervalTrigger(minutes=5), id="consciousness"
         )
 
-        # НОВОЕ: Утреннее планирование в 6:00
+        # Утреннее планирование в 6:00
         self.scheduler.add_job(
             self.morning_planning_cycle,
-            'cron', 
-            hour=6, 
-            minute=0,
+            CronTrigger(hour=6, minute=0),  # Используем CronTrigger
             id="morning_planning"
         )
 
@@ -229,20 +228,12 @@ class RealisticAICompanion:
             # Формируем сообщение о планах
             plan_messages = await self._generate_plan_announcement(today_plans)
             
-            # Отправляем пользователям
-            current_state = await self.optimized_ai.get_simple_mood_calculation(
-                self.psychological_core
+            # Отправляем пользователям (будет переопределено в telegram_bot.py)
+            await self.deliver_messages_with_timing(
+                plan_messages, 
+                await self.optimized_ai.get_simple_mood_calculation(self.psychological_core),
+                message_type="plan_announcement"
             )
-            
-            for user_id in self.allowed_users:
-                try:
-                    await self.send_telegram_messages_with_timing(
-                        chat_id=user_id,
-                        messages=plan_messages,
-                        current_state=current_state
-                    )
-                except Exception as e:
-                    self.logger.error(f"Ошибка отправки планов пользователю {user_id}: {e}")
                     
         except Exception as e:
             self.logger.error(f"Ошибка уведомления о планах: {e}")
@@ -317,90 +308,75 @@ class RealisticAICompanion:
         
         return messages
     
-    async def test_planning_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Тестирует систему ИИ-планирования"""
-        if not self.commands_enabled:
-            return
-        
-        await update.message.reply_text("🧪 Тестирую систему планирования...")
-        
+    async def force_generate_daily_plan(self) -> bool:
+        """Принудительно генерирует план дня (для тестирования)"""
         try:
-            # Принудительно генерируем план
-            success = await self.daily_planner.generate_daily_plan()
+            return await self.daily_planner.generate_daily_plan()
+        except Exception as e:
+            self.logger.error(f"Ошибка принудительного планирования: {e}")
+            return False
+    
+    def get_planning_stats(self) -> Dict[str, Any]:
+        """Получает статистику планирования"""
+        try:
+            import sqlite3
+            from datetime import date, timedelta
             
-            if success:
-                # Показываем сгенерированные планы
-                plans = await self._get_today_ai_plans()
+            db_path = self.enhanced_memory.db_manager.db_path
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
                 
-                if plans:
-                    text = "✅ **План успешно сгенерирован!**\n\n"
-                    text += f"📅 **Планов на сегодня: {len(plans)}**\n\n"
-                    
-                    for i, plan in enumerate(plans, 1):
-                        time_str = plan['start_time'].split(' ')[1][:5]
-                        importance_stars = "⭐" * min(plan['importance'], 5)
-                        flexibility_info = f"(гибкость: {plan['flexibility']}/10)"
-                        
-                        text += f"{i}. **{time_str}** - {plan['description']}\n"
-                        text += f"   {importance_stars} {flexibility_info}\n\n"
-                    
-                    await update.message.reply_text(text, parse_mode='Markdown')
-                else:
-                    await update.message.reply_text("✅ Планирование успешно, но планы не найдены")
-            else:
-                await update.message.reply_text("❌ Ошибка генерации плана")
+                # Общая статистика планирования
+                cursor.execute("SELECT COUNT(*) FROM planning_sessions")
+                total_sessions = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM virtual_activities WHERE generated_by_ai = 1")
+                total_ai_activities = cursor.fetchone()[0]
+                
+                # Статистика за последнюю неделю
+                week_ago = (date.today() - timedelta(days=7)).isoformat()
+                cursor.execute("""
+                    SELECT COUNT(*) FROM planning_sessions 
+                    WHERE planning_date >= ?
+                """, (week_ago,))
+                weekly_sessions = cursor.fetchone()[0]
+                
+                # Успешность планирования
+                cursor.execute("""
+                    SELECT COUNT(*) FROM planning_sessions 
+                    WHERE success = 1 AND planning_date >= ?
+                """, (week_ago,))
+                successful_sessions = cursor.fetchone()[0]
+                
+                # Планы на сегодня
+                today = date.today().isoformat()
+                cursor.execute("""
+                    SELECT COUNT(*) FROM virtual_activities
+                    WHERE planning_date = ? AND generated_by_ai = 1
+                """, (today,))
+                today_plans = cursor.fetchone()[0]
+                
+                return {
+                    "total_sessions": total_sessions,
+                    "total_ai_activities": total_ai_activities,
+                    "weekly_sessions": weekly_sessions,
+                    "successful_sessions": successful_sessions,
+                    "today_plans": today_plans,
+                    "success_rate": (successful_sessions / weekly_sessions * 100) if weekly_sessions > 0 else 0
+                }
                 
         except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка тестирования: {e}")
-
-    async def show_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает текущие планы"""
-        if not self.commands_enabled:
-            return
-        
-        try:
-            plans = await self._get_today_ai_plans()
-            
-            if not plans:
-                await update.message.reply_text(
-                    "📅 На сегодня нет ИИ-планов\n\n"
-                    "💡 Планы генерируются автоматически в 6:00 утра\n"
-                    "🧪 Или используйте: /test_planning"
-                )
-                return
-            
-            from datetime import datetime
-            current_time = datetime.now().time()
-            
-            text = f"📅 **МОИ ПЛАНЫ НА СЕГОДНЯ** ({len(plans)} активностей)\n\n"
-            
-            for i, plan in enumerate(plans, 1):
-                time_str = plan['start_time'].split(' ')[1][:5]
-                plan_time = datetime.strptime(time_str, '%H:%M').time()
-                
-                # Отмечаем текущие/прошедшие планы
-                if plan_time <= current_time:
-                    status = "✅" if plan_time < current_time else "🔄"
-                else:
-                    status = "⏳"
-                
-                importance = "🔥" if plan['importance'] >= 8 else "📋" if plan['importance'] >= 6 else "💭"
-                
-                text += f"{status} **{time_str}** {importance} {plan['description']}\n"
-                
-                if plan['importance'] >= 8:
-                    text += f"   ⚠️ Важно! (приоритет {plan['importance']}/10)\n"
-                elif plan['flexibility'] <= 3:
-                    text += f"   🔒 Сложно перенести (гибкость {plan['flexibility']}/10)\n"
-                
-                text += "\n"
-            
-            text += "💡 Планы генерируются ИИ автоматически каждое утро"
-            
-            await update.message.reply_text(text, parse_mode='Markdown')
-            
-        except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка показа планов: {e}")
+            self.logger.error(f"Ошибка получения статистики планирования: {e}")
+            return {
+                "total_sessions": 0,
+                "total_ai_activities": 0,
+                "weekly_sessions": 0,
+                "successful_sessions": 0,
+                "today_plans": 0,
+                "success_rate": 0,
+                "error": str(e)
+            }
 
     async def run_memory_consolidation(self):
         """Запуск автоматической консолидации памяти"""
