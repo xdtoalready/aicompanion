@@ -126,8 +126,6 @@ class RealisticAICompanion:
         self.daily_message_count = 0
         self.conversation_history = []
 
-        self.commands_enabled = True
-
         self.emotional_memory_consolidator = EmotionalMemoryConsolidator(
             db_path=db_path, api_manager=self.api_manager, config=config
         )
