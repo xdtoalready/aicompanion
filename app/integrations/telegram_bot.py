@@ -60,6 +60,7 @@ class TelegramCompanion(RealisticAICompanion):
             self.app.add_handler(CommandHandler("plans", self.show_plans_command))
             self.app.add_handler(CommandHandler("test_planning", self.test_planning_command))
             self.app.add_handler(CommandHandler("planning_stats", self.planning_stats_command))
+            self.app.add_handler(CommandHandler("activity", self.activity_command))
 
         # Проверка состояния расписания
         self.app.add_handler(CommandHandler("schedule", self.schedule_command))
@@ -122,7 +123,7 @@ class TelegramCompanion(RealisticAICompanion):
         await update.message.reply_text(text, parse_mode='Markdown')
 
     async def show_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Показывает текущие планы"""
+        """Показывает текущие планы (ИСПРАВЛЕНО)"""
         if not self.commands_enabled:
             return
         
@@ -145,28 +146,44 @@ class TelegramCompanion(RealisticAICompanion):
             text = f"📅 **МОИ ИИ-ПЛАНЫ НА СЕГОДНЯ** ({len(plans)} активностей)\n\n"
             
             for i, plan in enumerate(plans, 1):
-                time_str = plan['start_time'].split(' ')[1][:5]
                 try:
-                    plan_time = datetime.strptime(time_str, '%H:%M').time()
+                    # ИСПРАВЛЕНО: Безопасное извлечение времени
+                    time_str = self._extract_time_safely(plan.get('start_time', ''))
                     
-                    # Отмечаем текущие/прошедшие планы
-                    if plan_time <= current_time:
-                        status = "✅" if plan_time < current_time else "🔄"
+                    if time_str:
+                        try:
+                            plan_time = datetime.strptime(time_str, '%H:%M').time()
+                            
+                            # Отмечаем текущие/прошедшие планы
+                            if plan_time <= current_time:
+                                status = "✅" if plan_time < current_time else "🔄"
+                            else:
+                                status = "⏳"
+                        except:
+                            status = "📋"
                     else:
-                        status = "⏳"
-                except:
-                    status = "📋"
-                
-                importance = "🔥" if plan['importance'] >= 8 else "📋" if plan['importance'] >= 6 else "💭"
-                
-                text += f"{status} **{time_str}** {importance} {plan['description']}\n"
-                
-                if plan['importance'] >= 8:
-                    text += f"   ⚠️ Важно! (приоритет {plan['importance']}/10)\n"
-                elif plan['flexibility'] <= 3:
-                    text += f"   🔒 Сложно перенести (гибкость {plan['flexibility']}/10)\n"
-                
-                text += "\n"
+                        status = "📋"
+                        time_str = "время неизвестно"
+                    
+                    importance = plan.get('importance', 5)
+                    importance_emoji = "🔥" if importance >= 8 else "📋" if importance >= 6 else "💭"
+                    
+                    description = plan.get('description', 'Неизвестная активность')
+                    
+                    text += f"{status} **{time_str}** {importance_emoji} {description}\n"
+                    
+                    if importance >= 8:
+                        text += f"   ⚠️ Важно! (приоритет {importance}/10)\n"
+                    
+                    flexibility = plan.get('flexibility', 5)
+                    if flexibility <= 3:
+                        text += f"   🔒 Сложно перенести (гибкость {flexibility}/10)\n"
+                    
+                    text += "\n"
+                    
+                except Exception as e:
+                    self.logger.error(f"Ошибка обработки плана {i}: {e}")
+                    text += f"📋 **План {i}**: {plan.get('description', 'Ошибка загрузки')}\n\n"
             
             text += "🤖 Планы генерируются ИИ автоматически каждое утро"
             
@@ -175,8 +192,35 @@ class TelegramCompanion(RealisticAICompanion):
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка показа планов: {e}")
 
+    def _extract_time_safely(self, start_time_str: str) -> str:
+        """Безопасно извлекает время из строки"""
+        if not start_time_str:
+            return ""
+        
+        try:
+            # Пытаемся различные форматы
+            if 'T' in start_time_str:
+                # ISO формат: 2025-06-09T15:30:00
+                time_part = start_time_str.split('T')[1]
+                return time_part[:5]  # HH:MM
+            elif ' ' in start_time_str:
+                # Формат: 2025-06-09 15:30:00
+                parts = start_time_str.split(' ')
+                if len(parts) >= 2:
+                    return parts[1][:5]  # HH:MM
+            
+            # Если это уже просто время
+            if ':' in start_time_str:
+                return start_time_str[:5]
+            
+            return ""
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка извлечения времени из {start_time_str}: {e}")
+            return ""
+
     async def test_planning_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Тестирует систему ИИ-планирования"""
+        """Тестирует систему ИИ-планирования (ИСПРАВЛЕНО)"""
         if not self.commands_enabled:
             return
         
@@ -189,21 +233,31 @@ class TelegramCompanion(RealisticAICompanion):
             if success:
                 await update.message.reply_text("✅ План успешно сгенерирован! Смотрите: /plans")
                 
-                # Показываем краткую сводку
-                plans = await self._get_today_ai_plans()
-                
-                if plans:
-                    summary = f"📊 **Сгенерировано активностей: {len(plans)}**\n\n"
+                # ИСПРАВЛЕНО: Безопасное получение планов для сводки
+                try:
+                    plans = await self._get_today_ai_plans()
                     
-                    # Показываем только первые 3
-                    for plan in plans[:3]:
-                        time_str = plan['start_time'].split(' ')[1][:5]
-                        summary += f"• {time_str} - {plan['description'][:40]}...\n"
-                    
-                    if len(plans) > 3:
-                        summary += f"\n... и ещё {len(plans) - 3} активностей"
-                    
-                    await update.message.reply_text(summary, parse_mode='Markdown')
+                    if plans:
+                        summary = f"📊 **Сгенерировано активностей: {len(plans)}**\n\n"
+                        
+                        # Показываем только первые 3
+                        for i, plan in enumerate(plans[:3], 1):
+                            time_str = self._extract_time_safely(plan.get('start_time', ''))
+                            description = plan.get('description', 'Активность')
+                            
+                            summary += f"{i}. {time_str} - {description[:40]}"
+                            if len(description) > 40:
+                                summary += "..."
+                            summary += "\n"
+                        
+                        if len(plans) > 3:
+                            summary += f"\n... и ещё {len(plans) - 3} активностей"
+                        
+                        await update.message.reply_text(summary, parse_mode='Markdown')
+                        
+                except Exception as e:
+                    self.logger.error(f"Ошибка показа сводки планов: {e}")
+                    await update.message.reply_text("✅ План создан, но ошибка при показе сводки")
             else:
                 await update.message.reply_text(
                     "❌ Не удалось сгенерировать план\n\n"
@@ -314,8 +368,90 @@ class TelegramCompanion(RealisticAICompanion):
             await update.message.reply_text(f"❌ Ошибка получения статистики: {e}")
 
     async def _get_today_ai_plans(self) -> List[Dict]:
-        """Получает планы ИИ на сегодня (делегирует к базовому классу)"""
-        return await super()._get_today_ai_plans()
+        """Получает планы ИИ на сегодня"""
+        try:
+            import sqlite3
+            from datetime import date
+            
+            today = date.today()
+            
+            with sqlite3.connect(self.enhanced_memory.db_manager.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Более надёжный запрос
+                cursor.execute("""
+                    SELECT activity_type, description, start_time, 
+                        COALESCE(importance, 5) as importance, 
+                        COALESCE(flexibility, 5) as flexibility
+                    FROM virtual_activities
+                    WHERE DATE(start_time) = ? AND generated_by_ai = 1
+                    ORDER BY start_time ASC
+                """, (today.isoformat(),))
+                
+                plans = []
+                for row in cursor.fetchall():
+                    plans.append({
+                        'type': row[0] or 'unknown',
+                        'description': row[1] or 'Неизвестная активность', 
+                        'start_time': row[2] or '',
+                        'importance': row[3] or 5,
+                        'flexibility': row[4] or 5
+                    })
+                
+                return plans
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка получения планов: {e}")
+            return []
+        
+    async def activity_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показывает текущую активность персонажа"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            # Получаем текущую активность из виртуальной жизни
+            current_activity = self.virtual_life.current_activity
+            
+            if current_activity:
+                end_time = current_activity.end_time.strftime('%H:%M')
+                
+                text = f"🎭 **ТЕКУЩАЯ АКТИВНОСТЬ**\n\n"
+                text += f"📋 {current_activity.description}\n"
+                text += f"⏰ До {end_time}\n"
+                text += f"📍 Место: {self.virtual_life.location}\n"
+                text += f"💪 Энергия: {current_activity.energy_cost}%\n"
+                
+                # Настроение от активности
+                if current_activity.mood_effect > 0:
+                    text += f"😊 Поднимает настроение (+{current_activity.mood_effect:.1f})\n"
+                elif current_activity.mood_effect < 0:
+                    text += f"😔 Стрессует ({current_activity.mood_effect:.1f})\n"
+                else:
+                    text += f"😐 Нейтральная активность\n"
+                
+                text += f"\n💬 Статус: {self.virtual_life.availability}"
+                
+            else:
+                # Нет текущей активности
+                text = f"🏠 **СЕЙЧАС СВОБОДНА**\n\n"
+                text += f"📍 Место: {self.virtual_life.location}\n"
+                text += f"💬 Статус: {self.virtual_life.availability}\n"
+                text += f"⏰ Время: {datetime.now().strftime('%H:%M')}\n\n"
+                text += f"💡 Можем пообщаться или запланировать что-то вместе!"
+            
+            # Показываем ближайшие планы
+            upcoming = self.virtual_life.get_upcoming_activities(24)  # 24 часа
+            if upcoming:
+                text += f"\n\n📅 **Ближайшие планы:**\n"
+                for activity in upcoming[:3]:  # Первые 3
+                    time_str = activity.start_time.strftime('%H:%M')
+                    text += f"• {time_str} - {activity.description}\n"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка получения активности: {e}")
 
     async def force_generate_daily_plan(self) -> bool:
         """Принудительно генерирует план дня (делегирует к базовому классу)"""
