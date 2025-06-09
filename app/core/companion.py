@@ -96,6 +96,8 @@ class RealisticAICompanion:
         # Передаём character_loader в AI клиент
         self.optimized_ai = OptimizedAI(self.api_manager, config, self.character_loader)
 
+        self.optimized_ai.virtual_life_manager = self.virtual_life
+
         # Система печатания
         typing_config = config.get("typing", {})
         self.typing_simulator = TypingSimulator(
@@ -852,18 +854,50 @@ class RealisticAICompanion:
         self.logger.info("📅 Автоматическое расписание создано на 3 дня")
 
     async def send_initiative_messages(self, current_state: Dict):
-        """Отправка инициативных сообщений с БД контекстом"""
+        """Отправка инициативных сообщений с учётом виртуальной жизни (ИСПРАВЛЕНО)"""
 
-        # НОВОЕ: Получаем контекст из базы данных
+        # Получаем контекст из базы данных
         db_context = self.enhanced_memory.get_context_for_response(
             "инициативное общение"
         )
         current_state["memory_context"] = db_context
 
+        # Добавляем контекст виртуальной жизни
+        virtual_context = self.virtual_life.get_current_context_for_ai()
+        current_state["virtual_life_context"] = virtual_context
+
+        # Добавляем контекст персонажа
+        character_context = self.character_loader.get_character_context_for_ai()
+        current_state["character_context"] = character_context
+
+        # Получаем текущего персонажа для специальных тем
+        character = self.character_loader.get_current_character()
+        initiative_prompt = "Хочу написать пользователю что-то интересное"
+
+        if character:
+            # Специальные темы для инициатив в зависимости от персонажа
+            initiative_topics = character.get("behavior", {}).get(
+                "initiative_topics", []
+            )
+            if initiative_topics:
+                topic = random.choice(initiative_topics)
+                initiative_prompt = f"Хочу {topic}"
+
+            # Для Марин - особые инициативы
+            if "марин" in character.get("name", "").lower():
+                special_topics = [
+                    "рассказать о новом косплее который планирую",
+                    "поделиться впечатлениями от аниме которое смотрела",
+                    "предложить вместе поработать над костюмом",
+                    "рассказать о смешном случае на конвенции",
+                    "спросить мнение о новом наряде",
+                ]
+                initiative_prompt = f"Хочу {random.choice(special_topics)}"
+
         try:
             # Генерируем множественные сообщения
             messages = await self.optimized_ai.generate_split_response(
-                "Хочу написать пользователю что-то интересное", current_state
+                initiative_prompt, current_state
             )
 
             # Доставляем сообщения
@@ -920,11 +954,16 @@ class RealisticAICompanion:
             db_context = self.enhanced_memory.get_context_for_response(message)
             current_state["memory_context"] = db_context
 
+            # Добавляем контекст виртуальной жизни
+            virtual_context = self.virtual_life.get_current_context_for_ai()
+            current_state["virtual_life_context"] = virtual_context
+
             # Добавляем контекст персонажа
             character_context = self.character_loader.get_character_context_for_ai()
             current_state["character_context"] = character_context
 
             self.logger.info(f"Контекст персонажа: {character_context[:100]}...")
+            self.logger.info(f"Контекст виртуальной жизни: {virtual_context[:100]}...")
 
             # Генерируем ответ с полным контекстом
             ai_messages = await self.optimized_ai.generate_split_response(

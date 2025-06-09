@@ -104,6 +104,176 @@ class VirtualLifeManager:
                 
         except Exception as e:
             self.logger.error(f"Ошибка загрузки состояния: {e}")
+
+    def _get_today_ai_plans(self) -> List[Dict]:
+        """Получает ИИ-планы на сегодня"""
+        try:
+            from datetime import date
+            today = date.today()
+            
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, activity_type, description, start_time, end_time,
+                        importance, flexibility, emotional_reason
+                    FROM virtual_activities
+                    WHERE DATE(start_time) = ? AND generated_by_ai = 1
+                    ORDER BY start_time ASC
+                """, (today.isoformat(),))
+                
+                plans = []
+                for row in cursor.fetchall():
+                    plans.append({
+                        'id': row[0],
+                        'activity_type': row[1],
+                        'description': row[2],
+                        'start_time': row[3],
+                        'end_time': row[4],
+                        'importance': row[5] or 5,
+                        'flexibility': row[6] or 5,
+                        'emotional_reason': row[7] or ''
+                    })
+                
+                return plans
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка получения ИИ-планов: {e}")
+            return []
+        
+    def check_and_update_activities(self):
+        """Обновляет виртуальную жизнь персонажа (ИСПРАВЛЕНО)"""
+        try:
+            changes = {
+                "activity_started": None,
+                "activity_ended": None, 
+                "status_changed": False
+            }
+            
+            now = datetime.now()
+            
+            # НОВОЕ: Получаем ИИ-планы на сегодня
+            ai_plans = self._get_today_ai_plans()
+            
+            # Проверяем текущую активность из ИИ-планов
+            for plan in ai_plans:
+                try:
+                    plan_start = datetime.fromisoformat(plan['start_time'])
+                    plan_end = datetime.fromisoformat(plan['end_time'])
+                    
+                    # Активность должна начаться
+                    if plan_start <= now < plan_end and not self.current_activity:
+                        activity = VirtualActivity(
+                            id=plan['id'],
+                            activity_type=plan['activity_type'],
+                            description=plan['description'],
+                            start_time=plan_start,
+                            end_time=plan_end,
+                            status="active",
+                            mood_effect=0.0,
+                            energy_cost=20
+                        )
+                        
+                        self.current_activity = activity
+                        self.availability = "busy"
+                        changes["activity_started"] = activity
+                        changes["status_changed"] = True
+                        
+                        self.logger.info(f"🎭 Начата ИИ-активность: {activity.description}")
+                        break
+                    
+                    # Активность должна закончиться
+                    elif self.current_activity and now >= plan_end:
+                        if self.current_activity.id == plan['id']:
+                            changes["activity_ended"] = self.current_activity
+                            self.current_activity = None
+                            self.availability = "free"
+                            changes["status_changed"] = True
+                            
+                            self.logger.info(f"✅ Завершена ИИ-активность")
+                            break
+                            
+                except Exception as e:
+                    self.logger.error(f"Ошибка обработки плана {plan}: {e}")
+                    continue
+            
+            return changes
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка обновления виртуальной жизни: {e}")
+            return {"activity_started": None, "activity_ended": None, "status_changed": False}
+        
+    def get_current_context_for_ai(self) -> str:
+        """Возвращает контекст текущей активности для AI (ИСПРАВЛЕНО)"""
+        context_parts = []
+        
+        context_parts.append(f"ТЕКУЩЕЕ МЕСТОПОЛОЖЕНИЕ: {self.location}")
+        context_parts.append(f"ДОСТУПНОСТЬ: {self.availability}")
+        
+        # Получаем ИИ-планы
+        ai_plans = self._get_today_ai_plans()
+        current_time = datetime.now()
+        
+        # Ищем текущую активность и ближайшие планы
+        current_plan = None
+        upcoming_plans = []
+        
+        for plan in ai_plans:
+            try:
+                plan_start = datetime.fromisoformat(plan['start_time'])
+                plan_end = datetime.fromisoformat(plan['end_time'])
+                
+                if plan_start <= current_time < plan_end:
+                    current_plan = plan
+                elif plan_start > current_time:
+                    upcoming_plans.append(plan)
+            except Exception as e:
+                self.logger.error(f"Ошибка обработки времени плана: {e}")
+                continue
+        
+        if current_plan:
+            try:
+                time_left = (datetime.fromisoformat(current_plan['end_time']) - current_time).total_seconds() / 3600
+                
+                context_parts.append(f"ТЕКУЩАЯ АКТИВНОСТЬ: {current_plan['description']}")
+                context_parts.append(f"Тип: {current_plan['activity_type']}")
+                context_parts.append(f"Осталось времени: {time_left:.1f} часов")
+                context_parts.append(f"Важность: {current_plan['importance']}/10")
+                
+                if current_plan['emotional_reason']:
+                    context_parts.append(f"Причина: {current_plan['emotional_reason']}")
+                
+                # Контекст поведения в зависимости от активности
+                activity_behaviors = {
+                    "cosplay": "ПОВЕДЕНИЕ: Увлечена работой над костюмом, но можем поговорить",
+                    "work": "ПОВЕДЕНИЕ: На работе/учебе, отвечаю когда могу", 
+                    "social": "ПОВЕДЕНИЕ: С друзьями, но рада пообщаться",
+                    "rest": "ПОВЕДЕНИЕ: Отдыхаю, расслабленная",
+                    "hobby": "ПОВЕДЕНИЕ: Занимаюсь любимым делом, в хорошем настроении"
+                }
+                
+                behavior = activity_behaviors.get(current_plan['activity_type'], "ПОВЕДЕНИЕ: Занята, но могу пообщаться")
+                context_parts.append(behavior)
+                
+            except Exception as e:
+                self.logger.error(f"Ошибка формирования контекста текущей активности: {e}")
+        else:
+            context_parts.append("АКТИВНОСТЬ: Сейчас свободна")
+        
+        # Добавляем ближайшие планы
+        if upcoming_plans:
+            context_parts.append(f"\nБЛИЖАЙШИЕ ПЛАНЫ:")
+            for plan in upcoming_plans[:3]:  # Первые 3
+                try:
+                    plan_start = datetime.fromisoformat(plan['start_time'])
+                    time_str = plan_start.strftime('%H:%M')
+                    importance_marker = "🔥" if plan['importance'] >= 8 else "📋"
+                    context_parts.append(f"• {time_str} {importance_marker} {plan['description']}")
+                except Exception as e:
+                    self.logger.error(f"Ошибка форматирования плана: {e}")
+                    continue
+        
+        return "\n".join(context_parts)
     
     def _get_activity_by_id(self, activity_id: int) -> Optional[VirtualActivity]:
         """Получает активность по ID"""
