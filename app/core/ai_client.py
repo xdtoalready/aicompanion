@@ -26,6 +26,10 @@ class OptimizedAI:
         self.min_messages = config.get('messaging', {}).get('min_messages', 3)
         self.max_messages = config.get('messaging', {}).get('max_messages', 7)
         self.target_sentences_per_message = config.get('messaging', {}).get('target_sentences', 3)
+        self.use_emojis = config.get('messaging', {}).get('use_emojis', True)
+
+        # Limit for emoji additions per function call (rough control)
+        self.max_emojis = config.get('messaging', {}).get('max_emojis', 2)
         
         logging.info(f"AI клиент с персонажами: {self.model}, tokens={self.max_tokens}")
     
@@ -333,16 +337,23 @@ class OptimizedAI:
         
         name = character.get('name', 'AI')
         improved = list(messages)  # копия
-        
+        emojis_added = 0
+
         # Добавляем эмоциональности первому сообщению
         if len(improved) > 0:
             first_msg = improved[0]
             if not any(char in first_msg for char in ['!', '😊', '✨', 'ааа', 'ооо']):
                 # Добавляем эмоциональные элементы
                 if name.lower() == 'марин' or 'китагава' in name.lower():
-                    improved[0] = f"Ооо! {first_msg} Это так интересно! ✨"
+                    improved[0] = f"Ооо! {first_msg} Это так интересно!"
+                    if self.use_emojis and emojis_added < self.max_emojis:
+                        improved[0] += " ✨"
+                        emojis_added += 1
                 else:
-                    improved[0] = f"{first_msg} 😊"
+                    improved[0] = first_msg
+                    if self.use_emojis and emojis_added < self.max_emojis:
+                        improved[0] += " 😊"
+                        emojis_added += 1
         
         # Добавляем характерные фразы
         if len(improved) >= 2:
@@ -354,9 +365,17 @@ class OptimizedAI:
         # Добавляем дополнительное сообщение если мало
         if len(improved) < self.min_messages:
             if question_type == "emotional_question":
-                improved.append("Кстати, а ты как себя чувствуешь? Мне важно знать! 💕")
+                extra = "Кстати, а ты как себя чувствуешь? Мне важно знать!"
+                if self.use_emojis and emojis_added < self.max_emojis:
+                    extra += " 💕"
+                    emojis_added += 1
+                improved.append(extra)
             else:
-                improved.append("А что ты думаешь по этому поводу? Хочется услышать твоё мнение! ✨")
+                extra = "А что ты думаешь по этому поводу? Хочется услышать твоё мнение!"
+                if self.use_emojis and emojis_added < self.max_emojis:
+                    extra += " ✨"
+                    emojis_added += 1
+                improved.append(extra)
         
         return improved[:self.max_messages]
     
@@ -366,18 +385,23 @@ class OptimizedAI:
         if not character:
             return messages
         
+        if not self.use_emojis or self.max_emojis == 0:
+            return messages
+
         variations = []
+        emojis_added = 0
         for msg in messages:
             varied = msg
-            
+
             # Добавляем эмодзи характерные для персонажа
             text_patterns = character.get('speech', {}).get('text_patterns', [])
-            if text_patterns and random.random() < 0.4:
+            if (text_patterns and random.random() < 0.4 and emojis_added < self.max_emojis):
                 if 'смайлики' in str(text_patterns):
                     emojis = ['✨', '💕', '😊', '🎉']
                     if not any(emoji in varied for emoji in emojis):
                         varied += f" {random.choice(emojis)}"
-            
+                        emojis_added += 1
+
             variations.append(varied)
         
         return variations
