@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
+from .ai_activity_humanizer import AIActivityHumanizer
+
 @dataclass
 class VirtualActivity:
     """Виртуальная активность"""
@@ -27,6 +29,14 @@ class VirtualLifeManager:
         self.character_loader = character_loader
         self.logger = logging.getLogger(__name__)
         
+        # AI-гуманизатор активностей
+        if api_manager and character_loader and config:
+            self.activity_humanizer = AIActivityHumanizer(api_manager, character_loader, config)
+            self.logger.info("🎭 AI-гуманизатор активностей инициализирован")
+        else:
+            self.activity_humanizer = None
+            self.logger.warning("⚠️ AI-гуманизатор не инициализирован (нет api_manager)")
+
         # Текущее состояние
         self.current_activity: Optional[VirtualActivity] = None
         self.location = "дома"  # где находится персонаж
@@ -221,7 +231,7 @@ class VirtualLifeManager:
             return {"activity_started": None, "activity_ended": None, "status_changed": False}
         
     def get_current_context_for_ai(self) -> str:
-        """Возвращает контекст текущей активности для AI (ИСПРАВЛЕНО)"""
+        """Возвращает контекст текущей активности для AI (УЛУЧШЕННАЯ ВЕРСИЯ)"""
         context_parts = []
         
         context_parts.append(f"ТЕКУЩЕЕ МЕСТОПОЛОЖЕНИЕ: {self.location}")
@@ -248,12 +258,44 @@ class VirtualLifeManager:
                 self.logger.error(f"Ошибка обработки времени плана: {e}")
                 continue
         
+        # Обрабатываем текущую активность
         if current_plan:
             try:
                 time_left = (datetime.fromisoformat(current_plan['end_time']) - current_time).total_seconds() / 3600
                 
-                context_parts.append(f"ТЕКУЩАЯ АКТИВНОСТЬ: {current_plan['description']}")
-                context_parts.append(f"Тип: {current_plan['activity_type']}")
+                # НОВОЕ: Пытаемся гуманизировать через AI
+                if self.activity_humanizer:
+                    try:
+                        # Создаем задачу для асинхронного вызова
+                        import asyncio
+                        
+                        # Проверяем есть ли текущий event loop
+                        try:
+                            loop = asyncio.get_running_loop()
+                            # Если loop уже работает, создаем task
+                            humanized_description = asyncio.create_task(
+                                self.activity_humanizer.humanize_activity(
+                                    activity_type=current_plan['activity_type'],
+                                    start_time=current_plan['start_time'].split(' ')[1][:5] if ' ' in current_plan['start_time'] else current_plan['start_time'][:5],
+                                    importance=current_plan.get('importance', 5),
+                                    emotional_reason=current_plan.get('emotional_reason', '')
+                                )
+                            )
+                            # НО! Мы в синхронном методе, поэтому используем fallback
+                            activity_description = self._get_humanized_fallback(current_plan)
+                            
+                        except RuntimeError:
+                            # Нет event loop - используем fallback
+                            activity_description = self._get_humanized_fallback(current_plan)
+                    
+                    except Exception as e:
+                        self.logger.error(f"Ошибка AI гуманизации: {e}")
+                        activity_description = self._get_humanized_fallback(current_plan)
+                else:
+                    # Нет AI гуманизатора - используем fallback
+                    activity_description = self._get_humanized_fallback(current_plan)
+                
+                context_parts.append(f"ТЕКУЩАЯ АКТИВНОСТЬ: {activity_description}")
                 context_parts.append(f"Осталось времени: {time_left:.1f} часов")
                 context_parts.append(f"Важность: {current_plan['importance']}/10")
                 
@@ -274,20 +316,175 @@ class VirtualLifeManager:
                 
             except Exception as e:
                 self.logger.error(f"Ошибка формирования контекста текущей активности: {e}")
+                # Fallback на оригинальное описание
+                context_parts.append(f"ТЕКУЩАЯ АКТИВНОСТЬ: {current_plan.get('description', 'занимаюсь делами')}")
         else:
             context_parts.append("АКТИВНОСТЬ: Сейчас свободна")
         
-        # Добавляем ближайшие планы
+        # Обрабатываем ближайшие планы
         if upcoming_plans:
-            context_parts.append(f"\nБЛИЖАЙШИЕ ПЛАНЫ:")
-            for plan in upcoming_plans[:3]:  # Первые 3
+            context_parts.append(f"\nМОИ БЛИЖАЙШИЕ ПЛАНЫ:")
+            for plan in upcoming_plans[:5]:
                 try:
                     plan_start = datetime.fromisoformat(plan['start_time'])
                     time_str = plan_start.strftime('%H:%M')
                     importance_marker = "🔥" if plan['importance'] >= 8 else "📋"
-                    context_parts.append(f"• {time_str} {importance_marker} {plan['description']}")
+                    
+                    # Пытаемся гуманизировать описание плана
+                    plan_description = self._get_humanized_fallback(plan)
+                    
+                    context_parts.append(f"• {time_str} {importance_marker} {plan_description}")
+                    
                 except Exception as e:
                     self.logger.error(f"Ошибка форматирования плана: {e}")
+                    continue
+            
+            context_parts.append("\nИНСТРУКЦИЯ: ЗНАЙ СВОИ ПЛАНЫ! Упоминай их при вопросах о планах!")
+            context_parts.append("При вопросах о планах называй конкретное время и активность!")
+        else:
+            context_parts.append(f"\nПЛАНОВ НА СЕГОДНЯ: нет или уже выполнены")
+        
+        return "\n".join(context_parts)
+    
+    def _get_humanized_fallback(self, plan: Dict[str, Any]) -> str:
+        """Fallback гуманизация когда AI недоступен"""
+        
+        activity_type = plan.get('activity_type', 'unknown')
+        character = self.character_loader.get_current_character() if self.character_loader else None
+        
+        # Базовые человечные описания
+        basic_humanizations = {
+            "hobby": "занимаюсь любимым делом",
+            "work": "работаю/учусь",
+            "rest": "отдыхаю дома",
+            "social": "общаюсь с друзьями",
+            "cosplay": "работаю над костюмом",
+            "sleep": "готовлюсь ко сну",
+            "eat": "кушаю",
+            "study": "учусь",
+            "gaming": "играю в игры",
+            "reading": "читаю",
+            "shopping": "хожу по магазинам",
+            "exercise": "занимаюсь спортом"
+        }
+        
+        # Специальные описания для Марин
+        if character and 'марин' in character.get('name', '').lower():
+            marin_humanizations = {
+                "hobby": "работаю над новым косплеем",
+                "rest": "лежу и смотрю аниме",
+                "social": "болтаю с подругами о косплее",
+                "cosplay": "шью детали для костюма",
+                "work": "сижу на парах, думаю о косплее",
+                "study": "учусь, но мысли об аниме"
+            }
+            basic_humanizations.update(marin_humanizations)
+        
+        # Используем оригинальное описание как fallback fallback'а
+        humanized = basic_humanizations.get(activity_type, plan.get('description', f'занимаюсь делами ({activity_type})'))
+        
+        return humanized
+    
+    async def get_current_context_for_ai_async(self) -> str:
+        """Асинхронная версия с полноценной AI-гуманизацией"""
+        
+        context_parts = []
+        
+        context_parts.append(f"ТЕКУЩЕЕ МЕСТОПОЛОЖЕНИЕ: {self.location}")
+        context_parts.append(f"ДОСТУПНОСТЬ: {self.availability}")
+        
+        # Получаем ИИ-планы
+        ai_plans = self._get_today_ai_plans()
+        current_time = datetime.now()
+        
+        # Ищем текущую активность и ближайшие планы
+        current_plan = None
+        upcoming_plans = []
+        
+        for plan in ai_plans:
+            try:
+                plan_start = datetime.fromisoformat(plan['start_time'])
+                plan_end = datetime.fromisoformat(plan['end_time'])
+                
+                if plan_start <= current_time < plan_end:
+                    current_plan = plan
+                elif plan_start > current_time:
+                    upcoming_plans.append(plan)
+            except Exception as e:
+                self.logger.error(f"Ошибка обработки времени плана: {e}")
+                continue
+        
+        # Гуманизируем текущую активность через AI
+        if current_plan:
+            try:
+                time_left = (datetime.fromisoformat(current_plan['end_time']) - current_time).total_seconds() / 3600
+                
+                if self.activity_humanizer:
+                    try:
+                        humanized_activity = await self.activity_humanizer.humanize_activity(
+                            activity_type=current_plan['activity_type'],
+                            start_time=current_plan['start_time'].split(' ')[1][:5] if ' ' in current_plan['start_time'] else current_plan['start_time'][:5],
+                            importance=current_plan.get('importance', 5),
+                            emotional_reason=current_plan.get('emotional_reason', '')
+                        )
+                        
+                        context_parts.append(f"ТЕКУЩАЯ АКТИВНОСТЬ: {humanized_activity}")
+                        self.logger.info(f"🎭 AI гуманизировал: {current_plan['activity_type']} -> {humanized_activity}")
+                        
+                    except Exception as e:
+                        self.logger.error(f"Ошибка AI гуманизации: {e}")
+                        humanized_activity = self._get_humanized_fallback(current_plan)
+                        context_parts.append(f"ТЕКУЩАЯ АКТИВНОСТЬ: {humanized_activity}")
+                else:
+                    humanized_activity = self._get_humanized_fallback(current_plan)
+                    context_parts.append(f"ТЕКУЩАЯ АКТИВНОСТЬ: {humanized_activity}")
+                
+                context_parts.append(f"Осталось времени: {time_left:.1f} часов")
+                context_parts.append(f"Важность: {current_plan['importance']}/10")
+                
+            except Exception as e:
+                self.logger.error(f"Ошибка формирования контекста текущей активности: {e}")
+        else:
+            context_parts.append("АКТИВНОСТЬ: Сейчас свободна")
+        
+        # Гуманизируем ближайшие планы
+        if upcoming_plans and self.activity_humanizer:
+            context_parts.append(f"\nМОИ БЛИЖАЙШИЕ ПЛАНЫ:")
+            
+            for plan in upcoming_plans[:3]:  # Ограничиваем чтобы не тратить много токенов
+                try:
+                    plan_start = datetime.fromisoformat(plan['start_time'])
+                    time_str = plan_start.strftime('%H:%M')
+                    importance_marker = "🔥" if plan.get('importance', 5) >= 8 else "📋"
+                    
+                    # AI гуманизация
+                    try:
+                        humanized_plan = await self.activity_humanizer.humanize_activity(
+                            activity_type=plan['activity_type'],
+                            start_time=time_str,
+                            importance=plan.get('importance', 5)
+                        )
+                        context_parts.append(f"• {time_str} {importance_marker} {humanized_plan}")
+                        
+                    except Exception as e:
+                        self.logger.error(f"Ошибка AI гуманизации плана: {e}")
+                        fallback_desc = self._get_humanized_fallback(plan)
+                        context_parts.append(f"• {time_str} {importance_marker} {fallback_desc}")
+                    
+                except Exception as e:
+                    self.logger.error(f"Ошибка форматирования плана: {e}")
+                    continue
+        elif upcoming_plans:
+            # Нет AI гуманизатора, используем fallback
+            context_parts.append(f"\nМОИ БЛИЖАЙШИЕ ПЛАНЫ:")
+            for plan in upcoming_plans[:5]:
+                try:
+                    plan_start = datetime.fromisoformat(plan['start_time'])
+                    time_str = plan_start.strftime('%H:%M')
+                    importance_marker = "🔥" if plan.get('importance', 5) >= 8 else "📋"
+                    fallback_desc = self._get_humanized_fallback(plan)
+                    context_parts.append(f"• {time_str} {importance_marker} {fallback_desc}")
+                except Exception:
                     continue
         
         return "\n".join(context_parts)

@@ -269,9 +269,19 @@ class OptimizedAI:
         virtual_context = None
         if getattr(self, 'virtual_life_manager', None):
             try:
-                virtual_context = self.virtual_life_manager.get_current_context_for_ai()
+                # Пытаемся использовать асинхронную версию с AI-гуманизацией
+                if hasattr(self.virtual_life_manager, 'get_current_context_for_ai_async'):
+                    virtual_context = await self.virtual_life_manager.get_current_context_for_ai_async()
+                    self.logger.info("🎭 Использован асинхронный AI-гуманизированный контекст")
+                else:
+                    # Fallback на синхронную версию
+                    virtual_context = self.virtual_life_manager.get_current_context_for_ai()
+                    self.logger.info("⚠️ Использован синхронный fallback контекст")
+                    
             except Exception as e:
                 logging.error(f"Ошибка получения контекста виртуальной жизни: {e}")
+                # Двойной fallback - пустой контекст
+                virtual_context = "Виртуальная жизнь недоступна"
 
         if virtual_context:
             context['virtual_life_context'] = virtual_context

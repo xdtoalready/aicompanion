@@ -113,6 +113,8 @@ class RealisticAICompanion:
         self.virtual_life = VirtualLifeManager(
             db_path=config.get("database", {}).get("path", "data/companion.db"),
             character_loader=self.character_loader,
+            api_manager=self.api_manager,
+            config=config
         )
 
         # Теперь передаем VirtualLifeManager ПОСЛЕ его создания
@@ -960,6 +962,20 @@ class RealisticAICompanion:
             db_context = self.enhanced_memory.get_context_for_response(message)
             current_state["memory_context"] = db_context
 
+            try:
+                if hasattr(self.virtual_life, 'get_current_context_for_ai_async'):
+                    virtual_context = await self.virtual_life.get_current_context_for_ai_async()
+                    self.logger.info("🎭 Получен AI-гуманизированный контекст виртуальной жизни")
+                else:
+                    virtual_context = self.virtual_life.get_current_context_for_ai()
+                    self.logger.info("⚠️ Использован fallback контекст виртуальной жизни")
+                
+                current_state["virtual_life_context"] = virtual_context
+                
+            except Exception as e:
+                self.logger.error(f"Ошибка получения виртуального контекста: {e}")
+                current_state["virtual_life_context"] = "Виртуальная жизнь недоступна"
+
             # Добавляем контекст виртуальной жизни
             virtual_context = self.virtual_life.get_current_context_for_ai()
             current_state["virtual_life_context"] = virtual_context
@@ -1034,7 +1050,21 @@ class RealisticAICompanion:
         )
         current_state["memory_context"] = db_context
 
-        # НОВОЕ: Добавляем контекст персонажа
+        try:
+            if hasattr(self.virtual_life, 'get_current_context_for_ai_async'):
+                virtual_context = await self.virtual_life.get_current_context_for_ai_async()
+                self.logger.info("🎭 Инициатива с AI-гуманизированным контекстом")
+            else:
+                virtual_context = self.virtual_life.get_current_context_for_ai()
+                self.logger.info("⚠️ Инициатива с fallback контекстом")
+            
+            current_state["virtual_life_context"] = virtual_context
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка получения виртуального контекста для инициативы: {e}")
+            current_state["virtual_life_context"] = "Виртуальная жизнь недоступна"
+
+        # Добавляем контекст персонажа
         character_context = character_loader.get_character_context_for_ai()
         current_state["character_context"] = character_context
 
