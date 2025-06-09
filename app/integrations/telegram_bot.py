@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import random
 from typing import Dict, Any, List
 from datetime import datetime
 from telegram import Update, Bot
@@ -58,6 +59,13 @@ class TelegramCompanion(RealisticAICompanion):
         self.app.add_handler(CommandHandler("full_reset", self.full_reset_command))
         self.app.add_handler(CommandHandler("reset_plans", self.reset_plans_command))
         self.app.add_handler(CommandHandler("test_initiative", self.test_initiative_command))
+
+        self.app.add_handler(CommandHandler("generate_plans", self.generate_plans_command))
+        self.app.add_handler(CommandHandler("create_test_plans", self.create_test_plans_command))
+        self.app.add_handler(CommandHandler("clean_old_plans", self.clean_old_plans_command))
+
+        self.app.add_handler(CommandHandler("monitor_initiatives", self.monitor_initiatives_command))
+        self.app.add_handler(CommandHandler("trigger_consciousness", self.trigger_consciousness_command))
 
         self.app.add_handler(CommandHandler("test_delivery", self.test_delivery_command))
         
@@ -205,6 +213,81 @@ class TelegramCompanion(RealisticAICompanion):
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка: {e}")
 
+    async def monitor_initiatives_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Мониторинг автоматических инициатив"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            from apscheduler.job import Job
+            
+            # Проверяем статус планировщика
+            scheduler_running = self.scheduler.running
+            
+            # Ищем задачи consciousness_cycle
+            consciousness_jobs = []
+            for job in self.scheduler.get_jobs():
+                if 'consciousness' in job.id:
+                    consciousness_jobs.append(job)
+            
+            text = f"🔍 **МОНИТОРИНГ ИНИЦИАТИВ**\n\n"
+            text += f"📅 Планировщик работает: {'✅ Да' if scheduler_running else '❌ Нет'}\n"
+            text += f"🔄 Задач consciousness: {len(consciousness_jobs)}\n\n"
+            
+            if consciousness_jobs:
+                job = consciousness_jobs[0]
+                next_run = job.next_run_time
+                text += f"⏰ Следующая проверка: {next_run.strftime('%H:%M:%S') if next_run else 'Неизвестно'}\n"
+                
+                # Проверяем как давно была последняя проверка
+                if hasattr(self, '_last_consciousness_check'):
+                    last_check = getattr(self, '_last_consciousness_check')
+                    minutes_ago = (datetime.now() - last_check).total_seconds() / 60
+                    text += f"🕐 Последняя проверка: {minutes_ago:.1f} мин назад\n"
+                else:
+                    text += f"🕐 Последняя проверка: неизвестно\n"
+            
+            # Статистика инициатив
+            text += f"\n📊 **Статистика:**\n"
+            text += f"📤 Сегодня отправлено: {self.daily_message_count}\n"
+            
+            if self.last_message_time:
+                hours_since = (datetime.now() - self.last_message_time).total_seconds() / 3600
+                text += f"📨 Последнее сообщение: {hours_since:.1f}ч назад\n"
+            else:
+                text += f"📨 Последнее сообщение: никогда\n"
+            
+            # Текущие параметры
+            current_state = await self.optimized_ai.get_simple_mood_calculation(self.psychological_core)
+            text += f"\n🎯 **Текущие параметры:**\n"
+            text += f"• Желание: {current_state.get('initiative_desire', 0)}/10\n"
+            text += f"• Настроение: {current_state.get('current_mood', 'неизвестно')}\n"
+            text += f"• Энергия: {current_state.get('energy_level', 0)}/100\n"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка мониторинга: {e}")
+
+    async def trigger_consciousness_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Принудительный запуск цикла сознания"""
+        if not self.commands_enabled:
+            return
+        
+        await update.message.reply_text("🧠 Запускаю цикл сознания принудительно...")
+        
+        try:
+            # Отмечаем время проверки
+            self._last_consciousness_check = datetime.now()
+            
+            # Запускаем цикл сознания
+            await self.consciousness_cycle()
+            
+            await update.message.reply_text("✅ Цикл сознания выполнен! Проверьте логи.")
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка цикла сознания: {e}")
+
     async def show_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показывает текущие планы (ИСПРАВЛЕНО)"""
         if not self.commands_enabled:
@@ -276,7 +359,7 @@ class TelegramCompanion(RealisticAICompanion):
             await update.message.reply_text(f"❌ Ошибка показа планов: {e}")
 
     async def test_initiative_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Тестирование логики инициативных сообщений"""
+        """Тестирование логики инициативных сообщений (ИСПРАВЛЕНО)"""
         if not self.commands_enabled:
             return
         
@@ -284,9 +367,11 @@ class TelegramCompanion(RealisticAICompanion):
         
         try:
             # Принудительно запускаем проверку
+            self.logger.info("🧪 [TEST] Получаю текущее состояние...")
             current_state = await self.optimized_ai.get_simple_mood_calculation(self.psychological_core)
             
             # Показываем детальную информацию
+            self.logger.info("🧪 [TEST] Проверяю логику инициатив...")
             should_initiate = await self._should_initiate_realistically(current_state)
             
             result_text = f"📊 **РЕЗУЛЬТАТ ПРОВЕРКИ ИНИЦИАТИВ:**\n\n"
@@ -302,15 +387,167 @@ class TelegramCompanion(RealisticAICompanion):
             
             result_text += f"\n{'✅ БУДЕТ ОТПРАВЛЕНО' if should_initiate else '❌ НЕ БУДЕТ ОТПРАВЛЕНО'}"
             
-            if should_initiate:
-                result_text += f"\n\n🚀 Отправляю тестовое инициативное сообщение..."
-                await self.send_initiative_messages(current_state)
-                self.daily_message_count += 1
-            
             await update.message.reply_text(result_text, parse_mode='Markdown')
             
+            if should_initiate:
+                await update.message.reply_text("🚀 Отправляю тестовое инициативное сообщение...")
+                self.logger.info("🧪 [TEST] Запускаю send_initiative_messages...")
+                
+                try:
+                    await self.send_initiative_messages(current_state)
+                    self.daily_message_count += 1
+                    await update.message.reply_text("✅ Тестовая инициатива отправлена!")
+                except Exception as initiative_error:
+                    error_msg = f"❌ Ошибка тестовой инициативы: {initiative_error}"
+                    await update.message.reply_text(error_msg)
+                    self.logger.error(f"🧪 [TEST] {error_msg}")
+            
         except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка теста: {e}")
+            error_msg = f"❌ Ошибка теста: {e}"
+            await update.message.reply_text(error_msg)
+            self.logger.error(f"🧪 [TEST] {error_msg}", exc_info=True)
+
+    async def generate_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Генерация новых планов на завтра"""
+        if not self.commands_enabled:
+            return
+        
+        await update.message.reply_text("📅 Генерирую планы на завтра...")
+        
+        try:
+            # Принудительно генерируем план
+            success = await self.daily_planner.generate_daily_plan()
+            
+            if success:
+                await update.message.reply_text("✅ Планы на завтра сгенерированы! Проверьте: /plans")
+            else:
+                await update.message.reply_text("❌ Не удалось сгенерировать планы")
+                
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка генерации планов: {e}")
+
+    async def create_test_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Создание тестовых планов на сегодня"""
+        if not self.commands_enabled:
+            return
+        
+        await update.message.reply_text("🧪 Создаю тестовые планы на оставшуюся часть дня...")
+        
+        try:
+            from datetime import datetime, timedelta
+            import sqlite3
+            
+            # Создаем планы на ближайшие часы
+            current_hour = datetime.now().hour
+            
+            test_plans = [
+                {
+                    "hour": current_hour + 1,
+                    "activity": "Работаю над новым косплеем",
+                    "type": "cosplay",
+                    "duration": 2.0,
+                    "importance": 7
+                },
+                {
+                    "hour": current_hour + 3,
+                    "activity": "Смотрю новое аниме",
+                    "type": "hobby", 
+                    "duration": 1.5,
+                    "importance": 6
+                },
+                {
+                    "hour": current_hour + 5,
+                    "activity": "Общаюсь с друзьями онлайн",
+                    "type": "social",
+                    "duration": 2.0,
+                    "importance": 5
+                }
+            ]
+            
+            # Фильтруем планы чтобы не создавать на прошедшее время
+            valid_plans = [p for p in test_plans if p["hour"] < 24]
+            
+            if not valid_plans:
+                await update.message.reply_text("⏰ Слишком поздно для создания планов на сегодня")
+                return
+            
+            # Сохраняем в БД
+            today = datetime.now().date()
+            
+            with sqlite3.connect(self.enhanced_memory.db_manager.db_path) as conn:
+                cursor = conn.cursor()
+                
+                saved_count = 0
+                for plan in valid_plans:
+                    try:
+                        start_time = datetime.combine(
+                            today,
+                            datetime.min.time().replace(hour=plan["hour"], minute=0)
+                        )
+                        end_time = start_time + timedelta(hours=plan["duration"])
+                        
+                        cursor.execute("""
+                            INSERT INTO virtual_activities
+                            (character_id, activity_type, description, start_time, end_time,
+                            status, planned_by, flexibility, importance, 
+                            planning_date, generated_by_ai)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            1,  # character_id
+                            plan["type"],
+                            plan["activity"],
+                            start_time.isoformat(),
+                            end_time.isoformat(),
+                            'planned',
+                            'test_command',
+                            5,  # flexibility
+                            plan["importance"],
+                            today.isoformat(),
+                            True
+                        ))
+                        
+                        saved_count += 1
+                        
+                    except Exception as e:
+                        self.logger.error(f"Ошибка создания тестового плана: {e}")
+                
+                conn.commit()
+            
+            await update.message.reply_text(
+                f"✅ Создано {saved_count} тестовых планов!\n\n"
+                f"Проверьте: /plans или /debug_context"
+            )
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка создания тестовых планов: {e}")
+
+    async def clean_old_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Очистка старых планов"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            import sqlite3
+            from datetime import datetime, timedelta
+            
+            # Удаляем планы старше 3 дней
+            cutoff_date = (datetime.now() - timedelta(days=3)).date().isoformat()
+            
+            with sqlite3.connect(self.enhanced_memory.db_manager.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    DELETE FROM virtual_activities 
+                    WHERE DATE(start_time) < ? AND character_id = 1
+                """, (cutoff_date,))
+                
+                deleted_count = cursor.rowcount
+                conn.commit()
+            
+            await update.message.reply_text(f"🗑️ Удалено {deleted_count} старых планов")
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка очистки: {e}")
 
     def _extract_time_safely(self, start_time_str: str) -> str:
         """Безопасно извлекает время из строки"""
@@ -1657,85 +1894,133 @@ class TelegramCompanion(RealisticAICompanion):
             except Exception as e:
                 self.logger.error(f"Ошибка отправки сообщения пользователю {user_id}: {e}")
     
-    # ПЕРЕОПРЕДЕЛЯЕМ метод для отправки инициативных сообщений
+    # Метод для отправки инициативных сообщений
     async def send_initiative_messages(self, current_state: Dict):
-        """Отправка инициативных сообщений через Telegram"""
+        """Отправка инициативных сообщений через Telegram (ИСПРАВЛЕНО С ДЕТАЛЬНОЙ ДИАГНОСТИКОЙ)"""
         
-        self.logger.info("🚀 Генерация инициативных сообщений...")
+        self.logger.info("🚀 [INITIATIVE] Начинаю генерацию инициативных сообщений...")
         
-        # Получаем контекст из базы данных
-        db_context = self.enhanced_memory.get_context_for_response(
-            "инициативное общение"
-        )
-        current_state["memory_context"] = db_context
-
-        # Добавляем контекст виртуальной жизни
-        virtual_context = self.virtual_life.get_current_context_for_ai()
-        current_state["virtual_life_context"] = virtual_context
-
-        # Добавляем контекст персонажа
-        character_context = self.character_loader.get_character_context_for_ai()
-        current_state["character_context"] = character_context
-
-        # Получаем текущего персонажа для специальных тем
-        character = self.character_loader.get_current_character()
-        initiative_prompt = "Хочу написать пользователю что-то интересное"
-
-        if character:
-            # Специальные темы для инициатив в зависимости от персонажа
-            if "марин" in character.get("name", "").lower():
-                special_topics = [
-                    "рассказать о новом косплее который планирую",
-                    "поделиться впечатлениями от аниме которое смотрела",
-                    "предложить вместе поработать над костюмом",
-                    "рассказать о смешном случае на конвенции",
-                    "спросить мнение о новом наряде",
-                ]
-                initiative_prompt = f"Хочу {random.choice(special_topics)}"
-
         try:
-            # Генерируем множественные сообщения
-            messages = await self.optimized_ai.generate_split_response(
-                initiative_prompt, current_state
-            )
+            # Получаем контекст из базы данных
+            self.logger.info("🧠 [INITIATIVE] Получаю контекст из БД...")
+            db_context = self.enhanced_memory.get_context_for_response("инициативное общение")
+            current_state["memory_context"] = db_context
+            self.logger.info(f"🧠 [INITIATIVE] Контекст БД получен: {len(db_context)} символов")
 
-            self.logger.info(f"🎯 Сгенерировано {len(messages)} инициативных сообщений")
+            # Добавляем контекст виртуальной жизни
+            self.logger.info("🎭 [INITIATIVE] Получаю контекст виртуальной жизни...")
+            virtual_context = self.virtual_life.get_current_context_for_ai()
+            current_state["virtual_life_context"] = virtual_context
+            self.logger.info(f"🎭 [INITIATIVE] Виртуальный контекст: {virtual_context[:100]}...")
+
+            # Добавляем контекст персонажа
+            self.logger.info("👤 [INITIATIVE] Получаю контекст персонажа...")
+            character_context = self.character_loader.get_character_context_for_ai()
+            current_state["character_context"] = character_context
+            self.logger.info(f"👤 [INITIATIVE] Контекст персонажа: {character_context[:100]}...")
+
+            # Получаем текущего персонажа для специальных тем
+            character = self.character_loader.get_current_character()
+            initiative_prompt = "Хочу написать пользователю что-то интересное"
+
+            if character:
+                character_name = character.get("name", "")
+                self.logger.info(f"🎭 [INITIATIVE] Персонаж: {character_name}")
+                
+                # Специальные темы для инициатив в зависимости от персонажа
+                if "марин" in character_name.lower():
+                    special_topics = [
+                        "рассказать о новом косплее который планирую",
+                        "поделиться впечатлениями от аниме которое смотрела",
+                        "предложить вместе поработать над костюмом",
+                        "рассказать о смешном случае на конвенции",
+                        "спросить мнение о новом наряде",
+                    ]
+                    selected_topic = random.choice(special_topics)
+                    initiative_prompt = f"Хочу {selected_topic}"
+                    self.logger.info(f"🎯 [INITIATIVE] Выбранная тема для Марин: {selected_topic}")
+            else:
+                self.logger.warning("⚠️ [INITIATIVE] Персонаж не загружен!")
+
+            self.logger.info(f"📝 [INITIATIVE] Финальный промпт: {initiative_prompt}")
+
+            # Генерируем множественные сообщения
+            self.logger.info("🤖 [INITIATIVE] Вызываю AI для генерации ответа...")
+            
+            try:
+                messages = await self.optimized_ai.generate_split_response(
+                    initiative_prompt, current_state
+                )
+                self.logger.info(f"✅ [INITIATIVE] AI сгенерировал {len(messages)} сообщений")
+                
+                # Логируем первые 50 символов каждого сообщения
+                for i, msg in enumerate(messages, 1):
+                    self.logger.info(f"📨 [INITIATIVE] Сообщение {i}: {msg[:50]}...")
+                    
+            except Exception as ai_error:
+                self.logger.error(f"💥 [INITIATIVE] КРИТИЧЕСКАЯ ОШИБКА генерации AI: {ai_error}")
+                self.logger.error(f"💥 [INITIATIVE] Состояние: {current_state}")
+                raise ai_error
+
+            if not messages:
+                self.logger.error("❌ [INITIATIVE] AI вернул пустой список сообщений!")
+                return
 
             # ИСПРАВЛЕНО: Отправляем напрямую через Telegram с паузами
+            self.logger.info(f"📤 [INITIATIVE] Начинаю отправку {len(messages)} сообщений пользователям...")
+            
+            success_users = 0
             for user_id in self.allowed_users:
                 try:
+                    self.logger.info(f"📱 [INITIATIVE] Отправляю пользователю {user_id}...")
+                    
                     await self.send_telegram_messages_with_timing(
                         chat_id=user_id,
                         messages=messages,
                         current_state=current_state
                     )
-                    self.logger.info(f"✅ Инициативные сообщения доставлены пользователю {user_id}")
-                except Exception as e:
-                    self.logger.error(f"❌ Ошибка отправки инициативы пользователю {user_id}: {e}")
+                    
+                    success_users += 1
+                    self.logger.info(f"✅ [INITIATIVE] Успешно отправлено пользователю {user_id}")
+                    
+                except Exception as send_error:
+                    self.logger.error(f"❌ [INITIATIVE] Ошибка отправки пользователю {user_id}: {send_error}")
 
-            # Сохраняем в БД как инициативный диалог
-            mood_current = current_state.get("dominant_emotion", "calm")
-            self.enhanced_memory.add_conversation(
-                "[ИНИЦИАТИВА]", messages, mood_current, mood_current
-            )
+            self.logger.info(f"📊 [INITIATIVE] Доставка завершена: {success_users}/{len(self.allowed_users)} пользователей")
 
-            # Обновляем состояние
-            self.psychological_core.update_emotional_state("positive_interaction", 0.5)
-            self.last_message_time = datetime.now()
+            if success_users > 0:
+                # Сохраняем в БД как инициативный диалог
+                try:
+                    mood_current = current_state.get("dominant_emotion", "calm")
+                    conversation_id = self.enhanced_memory.add_conversation(
+                        "[ИНИЦИАТИВА]", messages, mood_current, mood_current
+                    )
+                    self.logger.info(f"💾 [INITIATIVE] Сохранено в БД с ID: {conversation_id}")
+                except Exception as db_error:
+                    self.logger.error(f"❌ [INITIATIVE] Ошибка сохранения в БД: {db_error}")
 
-            self.logger.info(f"🎊 Инициативные сообщения успешно отправлены: {len(messages)} шт.")
+                # Обновляем состояние
+                self.psychological_core.update_emotional_state("positive_interaction", 0.5)
+                self.last_message_time = datetime.now()
 
-        except Exception as e:
-            self.logger.error(f"💥 КРИТИЧЕСКАЯ ошибка генерации инициативы: {e}")
+                self.logger.info(f"🎊 [INITIATIVE] ИНИЦИАТИВНЫЕ СООБЩЕНИЯ УСПЕШНО ОТПРАВЛЕНЫ: {len(messages)} шт.")
+            else:
+                self.logger.error("💀 [INITIATIVE] НИ ОДНОМУ ПОЛЬЗОВАТЕЛЮ НЕ УДАЛОСЬ ОТПРАВИТЬ!")
+
+        except Exception as critical_error:
+            self.logger.error(f"💥 [INITIATIVE] КРИТИЧЕСКАЯ ОШИБКА всего процесса: {critical_error}")
+            self.logger.error(f"💥 [INITIATIVE] Трассировка:", exc_info=True)
             
             # Fallback: отправляем простое сообщение
             fallback_msg = "Привет! Как дела? 😊"
+            
             for user_id in self.allowed_users:
                 try:
+                    self.logger.info(f"🆘 [INITIATIVE] Отправляю fallback пользователю {user_id}...")
                     await self.app.bot.send_message(chat_id=user_id, text=fallback_msg)
-                    self.logger.info(f"🆘 Fallback сообщение отправлено пользователю {user_id}")
+                    self.logger.info(f"✅ [INITIATIVE] Fallback отправлен пользователю {user_id}")
                 except Exception as fallback_error:
-                    self.logger.error(f"💀 Даже fallback провалился для {user_id}: {fallback_error}")
+                    self.logger.error(f"💀 [INITIATIVE] Даже fallback провалился для {user_id}: {fallback_error}")
 
     async def test_delivery_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Тестирование системы доставки сообщений"""

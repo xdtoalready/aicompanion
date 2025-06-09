@@ -595,18 +595,24 @@ class RealisticAICompanion:
             self.logger.error(f"Ошибка сохранения анализа: {e}")
 
     async def consciousness_cycle(self):
-        """Реалистичный цикл сознания с многосообщенческими инициативами"""
+        """Реалистичный цикл сознания с многосообщенческими инициативами (ИСПРАВЛЕНО)"""
 
         try:
+            # Отмечаем время проверки для мониторинга
+            self._last_consciousness_check = datetime.now()
+            
             current_time = datetime.now()
+            self.logger.info(f"🧠 [CONSCIOUSNESS] Цикл сознания запущен в {current_time.strftime('%H:%M:%S')}")
 
             # Не активен ночью (23:00 - 7:00)
             if current_time.hour >= 23 or current_time.hour < 7:
+                self.logger.info("😴 [CONSCIOUSNESS] Ночное время - пропускаю")
                 return
 
             # Ограничение сообщений в день
             max_daily = self.config.get("behavior", {}).get("max_daily_initiatives", 8)
             if self.daily_message_count >= max_daily:
+                self.logger.info(f"📊 [CONSCIOUSNESS] Лимит сообщений достигнут: {self.daily_message_count}/{max_daily}")
                 return
 
             # Обновляем эмоциональное состояние
@@ -621,17 +627,19 @@ class RealisticAICompanion:
             should_initiate = await self._should_initiate_realistically(current_state)
 
             if should_initiate:
-                await self.send_initiative_messages(
-                    current_state
-                )  # ИЗМЕНЕНО: теперь множественные
+                self.logger.info("🚀 [CONSCIOUSNESS] Отправляю инициативные сообщения...")
+                await self.send_initiative_messages(current_state)
                 self.daily_message_count += 1
+            else:
+                self.logger.info("😐 [CONSCIOUSNESS] Инициатива не одобрена")
 
             # Иногда генерируем жизненные события
             if random.random() < 0.15:  # 15% шанс
+                self.logger.info("🎲 [CONSCIOUSNESS] Генерирую жизненное событие...")
                 await self.generate_life_event()
 
         except Exception as e:
-            self.logger.error(f"Ошибка в цикле сознания: {e}")
+            self.logger.error(f"💥 [CONSCIOUSNESS] Ошибка в цикле сознания: {e}", exc_info=True)
 
     async def _should_initiate_realistically(self, current_state: Dict) -> bool:
         """ИСПРАВЛЕННОЕ решение об инициативе с подробным логированием"""
