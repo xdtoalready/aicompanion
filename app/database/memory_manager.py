@@ -356,10 +356,30 @@ class DatabaseMemoryManager:
                     })
                 
                 return results
-                
+
         except Exception as e:
             self.logger.error(f"Ошибка получения диалогов: {e}")
             return []
+
+    def clear_all_data(self):
+        """Удаляет все диалоги и воспоминания текущего персонажа"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    "DELETE FROM conversations WHERE character_id = ?",
+                    (self.character_id,)
+                )
+                cursor.execute(
+                    "DELETE FROM memories WHERE character_id = ?",
+                    (self.character_id,)
+                )
+
+                conn.commit()
+        except Exception as e:
+            self.logger.error(f"Ошибка очистки данных: {e}")
+            raise
 
     def build_context_for_prompt(self, current_message: str) -> str:
         """Создание контекста с учётом консолидированной памяти"""
@@ -451,3 +471,10 @@ class EnhancedMemorySystem:
                 "total_memories": 0,
                 "last_conversation": None
             }
+
+    def clear_all_data(self):
+        """Удаляет все данные текущего персонажа"""
+        try:
+            self.db_manager.clear_all_data()
+        except Exception as e:
+            self.logger.error(f"Ошибка очистки данных: {e}")
