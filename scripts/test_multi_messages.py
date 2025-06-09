@@ -3,12 +3,7 @@
 """
 
 import asyncio
-import sys
 import json
-from pathlib import Path
-
-# Добавляем корневую директорию в PYTHONPATH
-sys.path.append(str(Path(__file__).parent.parent))
 
 from app.core.companion import RealisticAICompanion
 from app.core.typing_simulator import TypingSimulator

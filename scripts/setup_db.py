@@ -4,10 +4,6 @@
 
 import sys
 import os
-from pathlib import Path
-
-# Добавляем корневую директорию в PYTHONPATH
-sys.path.append(str(Path(__file__).parent.parent))
 
 from app.database import init_database
 

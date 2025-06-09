@@ -63,6 +63,9 @@ venv\Scripts\activate     # Windows
 
 # Устанавливаем зависимости
 pip install -r requirements.txt
+
+# Устанавливаем пакет в режиме разработки (или добавьте путь в PYTHONPATH)
+pip install -e .
 ```
 
 ### 4. Запуск

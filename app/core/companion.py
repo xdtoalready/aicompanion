@@ -5,18 +5,13 @@ import asyncio
 import json
 import logging
 import random
-import sys
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional, Dict, Any, List
 from openai import AsyncOpenAI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .virtual_life import VirtualLifeManager, VirtualActivity
-
-# Добавляем корневой путь в sys.path ОДИН РАЗ
-sys.path.append(str(Path(__file__).parent.parent.parent))
 
 # Относительные импорты для модулей внутри core
 from .psychology import PsychologicalCore
@@ -30,8 +25,8 @@ from .memory_consolidation import (
     enhance_existing_memories_with_emotions,
 )
 
-# Абсолютный импорт для database (так как sys.path добавлен)
-from app.database.memory_manager import EnhancedMemorySystem
+# Импорт системы работы с базой данных
+from ..database.memory_manager import EnhancedMemorySystem
 
 
 class RealisticAICompanion:
