@@ -6,10 +6,6 @@ import json
 import logging
 import os
 import sys
-from pathlib import Path
-
-# Добавляем путь к app в PYTHONPATH
-sys.path.append(str(Path(__file__).parent))
 
 from app.integrations.telegram_bot import TelegramCompanion
 from app.core.companion import RealisticAICompanion

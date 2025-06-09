@@ -5,14 +5,9 @@
 """
 
 import asyncio
-import sys
 import os
 import sqlite3
 import time
-from pathlib import Path
-
-# Добавляем корневую директорию в PYTHONPATH
-sys.path.append(str(Path(__file__).parent.parent))
 
 async def test_database():
     """Тестирование базы данных"""
@@ -91,9 +86,8 @@ async def test_memory_system():
     print("\n🧠 Тестирование системы памяти...")
     
     try:
-        # Импортируем исправленную систему памяти
-        sys.path.append(str(Path(__file__).parent.parent / 'app'))
-        from database.memory_manager import EnhancedMemorySystem
+        # Импортируем систему памяти из пакета
+        from app.database.memory_manager import EnhancedMemorySystem
         
         memory = EnhancedMemorySystem()
         
@@ -129,9 +123,8 @@ async def test_message_splitting():
     print("\n✂️ Тестирование разделения сообщений...")
     
     try:
-        # Импортируем исправленный AI клиент
-        sys.path.append(str(Path(__file__).parent.parent / 'app'))
-        from core.ai_client import OptimizedAI
+        # Импортируем AI клиент из пакета
+        from app.core.ai_client import OptimizedAI
         
         # Мок конфигурация
         config = {
@@ -171,8 +164,7 @@ async def test_question_analysis():
     print("\n🎯 Тестирование анализа вопросов...")
     
     try:
-        sys.path.append(str(Path(__file__).parent.parent / 'app'))
-        from core.ai_client import OptimizedAI
+        from app.core.ai_client import OptimizedAI
         
         config = {
             'ai': {'model': 'test', 'max_tokens': 300, 'temperature': 0.8},
@@ -243,8 +235,7 @@ async def test_database_integration():
     print("\n🔗 Тестирование интеграции с БД...")
     
     try:
-        sys.path.append(str(Path(__file__).parent.parent / 'app'))
-        from database.memory_manager import DatabaseMemoryManager
+        from app.database.memory_manager import DatabaseMemoryManager
         
         # Создаем менеджер БД
         db_manager = DatabaseMemoryManager()
