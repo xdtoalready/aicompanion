@@ -65,7 +65,8 @@ class TelegramCompanion(RealisticAICompanion):
             self.app.add_handler(CommandHandler("mood", self.mood_command))
             self.app.add_handler(CommandHandler("memories", self.memories_command))
             self.app.add_handler(CommandHandler("stats", self.stats_command))
-            self.app.add_handler(CommandHandler("dbcheck", self.dbcheck_command))        
+            self.app.add_handler(CommandHandler("dbcheck", self.dbcheck_command))
+            self.app.add_handler(CommandHandler("clearmem", self.clear_memory_command))
 
         # Обработка текстовых сообщений
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
@@ -477,6 +478,17 @@ class TelegramCompanion(RealisticAICompanion):
             status_text = f"❌ Ошибка проверки БД: {e}"
         
         await update.message.reply_text(status_text, parse_mode='Markdown')
+
+    async def clear_memory_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Полная очистка данных о пользователе"""
+        if not self.commands_enabled:
+            return
+
+        try:
+            self.enhanced_memory.clear_all_data()
+            await update.message.reply_text("🗑️ Память очищена")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка очистки памяти: {e}")
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка команды /start"""
