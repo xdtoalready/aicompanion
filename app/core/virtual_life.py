@@ -24,19 +24,24 @@ class VirtualActivity:
 class VirtualLifeManager:
     """Менеджер виртуальной жизни персонажа"""
     
-    def __init__(self, db_path: str, character_loader=None):
+    def __init__(self, db_path: str, character_loader=None, api_manager=None, config=None):
         self.db_path = db_path
         self.character_loader = character_loader
         self.logger = logging.getLogger(__name__)
         
         # AI-гуманизатор активностей
         if api_manager and character_loader and config:
-            self.activity_humanizer = AIActivityHumanizer(api_manager, character_loader, config)
-            self.logger.info("🎭 AI-гуманизатор активностей инициализирован")
+            try:
+                from .ai_activity_humanizer import AIActivityHumanizer
+                self.activity_humanizer = AIActivityHumanizer(api_manager, character_loader, config)
+                self.logger.info("🎭 AI-гуманизатор активностей инициализирован")
+            except ImportError as e:
+                self.logger.error(f"Ошибка импорта AI-гуманизатора: {e}")
+                self.activity_humanizer = None
         else:
             self.activity_humanizer = None
             self.logger.warning("⚠️ AI-гуманизатор не инициализирован (нет api_manager)")
-
+        
         # Текущее состояние
         self.current_activity: Optional[VirtualActivity] = None
         self.location = "дома"  # где находится персонаж
