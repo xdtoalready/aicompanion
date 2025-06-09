@@ -61,6 +61,7 @@ class TelegramCompanion(RealisticAICompanion):
             self.app.add_handler(CommandHandler("test_planning", self.test_planning_command))
             self.app.add_handler(CommandHandler("planning_stats", self.planning_stats_command))
             self.app.add_handler(CommandHandler("activity", self.activity_command))
+            self.app.add_handler(CommandHandler("debug_context", self.debug_context_command))
 
         # Проверка состояния расписания
         self.app.add_handler(CommandHandler("schedule", self.schedule_command))
@@ -366,6 +367,40 @@ class TelegramCompanion(RealisticAICompanion):
             
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка получения статистики: {e}")
+
+    async def debug_context_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Отладка контекста виртуальной жизни"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            # Получаем контекст виртуальной жизни
+            virtual_context = self.virtual_life.get_current_context_for_ai()
+            
+            # Получаем планы напрямую
+            ai_plans = self.virtual_life._get_today_ai_plans()
+            
+            current_time = datetime.now()
+            
+            text = f"🔍 **ОТЛАДКА КОНТЕКСТА**\n\n"
+            text += f"⏰ **Текущее время:** {current_time.strftime('%H:%M')}\n\n"
+            
+            text += f"📋 **Планов на сегодня:** {len(ai_plans)}\n"
+            
+            if ai_plans:
+                text += f"**Список всех планов:**\n"
+                for i, plan in enumerate(ai_plans, 1):
+                    start_time = plan['start_time']
+                    description = plan['description']
+                    importance = plan['importance']
+                    text += f"{i}. {start_time} - {description} (важность: {importance})\n"
+            
+            text += f"\n🎭 **Контекст для AI:**\n```\n{virtual_context}\n```"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка отладки: {e}")
 
     async def _get_today_ai_plans(self) -> List[Dict]:
         """Получает планы ИИ на сегодня"""

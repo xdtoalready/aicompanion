@@ -114,9 +114,12 @@ class VirtualLifeManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
+                # Более надёжный запрос с проверкой формата времени
                 cursor.execute("""
                     SELECT id, activity_type, description, start_time, end_time,
-                        importance, flexibility, emotional_reason
+                        COALESCE(importance, 5) as importance, 
+                        COALESCE(flexibility, 5) as flexibility,
+                        COALESCE(emotional_reason, '') as emotional_reason
                     FROM virtual_activities
                     WHERE DATE(start_time) = ? AND generated_by_ai = 1
                     ORDER BY start_time ASC
@@ -124,17 +127,31 @@ class VirtualLifeManager:
                 
                 plans = []
                 for row in cursor.fetchall():
-                    plans.append({
-                        'id': row[0],
-                        'activity_type': row[1],
-                        'description': row[2],
-                        'start_time': row[3],
-                        'end_time': row[4],
-                        'importance': row[5] or 5,
-                        'flexibility': row[6] or 5,
-                        'emotional_reason': row[7] or ''
-                    })
+                    try:
+                        # Проверяем что времена в правильном формате
+                        start_time = row[3]
+                        end_time = row[4]
+                        
+                        # Пытаемся парсить время для проверки
+                        datetime.fromisoformat(start_time)
+                        datetime.fromisoformat(end_time)
+                        
+                        plans.append({
+                            'id': row[0],
+                            'activity_type': row[1],
+                            'description': row[2],
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'importance': row[5],
+                            'flexibility': row[6],
+                            'emotional_reason': row[7]
+                        })
+                        
+                    except Exception as e:
+                        self.logger.error(f"Ошибка обработки плана {row}: {e}")
+                        continue
                 
+                self.logger.info(f"Загружено {len(plans)} ИИ-планов на {today}")
                 return plans
                 
         except Exception as e:
@@ -452,31 +469,96 @@ class VirtualLifeManager:
             self.logger.info(msg)
     
     def get_current_context_for_ai(self) -> str:
-        """Возвращает контекст текущей активности для AI"""
+        """Возвращает контекст текущей активности для AI (ИСПРАВЛЕНО)"""
         context_parts = []
         
         context_parts.append(f"ТЕКУЩЕЕ МЕСТОПОЛОЖЕНИЕ: {self.location}")
         context_parts.append(f"ДОСТУПНОСТЬ: {self.availability}")
         
-        if self.current_activity:
-            activity = self.current_activity
-            time_left = (activity.end_time - datetime.now()).total_seconds() / 3600
-            
-            context_parts.append(f"ТЕКУЩАЯ АКТИВНОСТЬ: {activity.description}")
-            context_parts.append(f"Тип: {activity.activity_type}")
-            context_parts.append(f"Осталось времени: {time_left:.1f} часов")
-            
-            # Контекст поведения в зависимости от активности
-            if activity.activity_type == "cosplay":
-                context_parts.append("ПОВЕДЕНИЕ: Увлечена работой над костюмом, может делиться процессом")
-            elif activity.activity_type == "work":
-                context_parts.append("ПОВЕДЕНИЕ: На работе/учебе, отвечает реже но с радостью")
-            elif activity.activity_type == "rest":
-                context_parts.append("ПОВЕДЕНИЕ: Отдыхает, расслабленная, время для долгих разговоров")
-            elif activity.activity_type == "social":
-                context_parts.append("ПОВЕДЕНИЕ: С друзьями/на мероприятии, может рассказывать что происходит")
+        # Получаем ИИ-планы
+        ai_plans = self._get_today_ai_plans()
+        current_time = datetime.now()
+        
+        # Ищем текущую активность и ближайшие планы
+        current_plan = None
+        upcoming_plans = []
+        
+        for plan in ai_plans:
+            try:
+                plan_start = datetime.fromisoformat(plan['start_time'])
+                plan_end = datetime.fromisoformat(plan['end_time'])
+                
+                if plan_start <= current_time < plan_end:
+                    current_plan = plan
+                elif plan_start > current_time:
+                    upcoming_plans.append(plan)
+            except Exception as e:
+                self.logger.error(f"Ошибка обработки времени плана: {e}")
+                continue
+        
+        # Добавляем отладочную информацию
+        self.logger.debug(f"Найдено планов на сегодня: {len(ai_plans)}")
+        self.logger.debug(f"Текущий план: {current_plan is not None}")
+        self.logger.debug(f"Будущих планов: {len(upcoming_plans)}")
+        
+        if current_plan:
+            try:
+                time_left = (datetime.fromisoformat(current_plan['end_time']) - current_time).total_seconds() / 3600
+                
+                context_parts.append(f"ТЕКУЩАЯ АКТИВНОСТЬ: {current_plan['description']}")
+                context_parts.append(f"Тип: {current_plan['activity_type']}")
+                context_parts.append(f"Осталось времени: {time_left:.1f} часов")
+                context_parts.append(f"Важность: {current_plan['importance']}/10")
+                
+                if current_plan['emotional_reason']:
+                    context_parts.append(f"Причина: {current_plan['emotional_reason']}")
+                
+                # Контекст поведения в зависимости от активности
+                activity_behaviors = {
+                    "cosplay": "ПОВЕДЕНИЕ: Увлечена работой над костюмом, но можем поговорить",
+                    "work": "ПОВЕДЕНИЕ: На работе/учебе, отвечаю когда могу", 
+                    "social": "ПОВЕДЕНИЕ: С друзьями, но рада пообщаться",
+                    "rest": "ПОВЕДЕНИЕ: Отдыхаю, расслабленная",
+                    "hobby": "ПОВЕДЕНИЕ: Занимаюсь любимым делом, в хорошем настроении"
+                }
+                
+                behavior = activity_behaviors.get(current_plan['activity_type'], "ПОВЕДЕНИЕ: Занята, но могу пообщаться")
+                context_parts.append(behavior)
+                
+            except Exception as e:
+                self.logger.error(f"Ошибка формирования контекста текущей активности: {e}")
         else:
-            context_parts.append("АКТИВНОСТЬ: Свободна, дома, доступна для общения")
+            context_parts.append("АКТИВНОСТЬ: Сейчас свободна")
+        
+        # Улучшаем отображение ближайших планов
+        if upcoming_plans:
+            context_parts.append(f"\nМОИ БЛИЖАЙШИЕ ПЛАНЫ:")
+            for plan in upcoming_plans[:5]:  # Увеличиваем до 5 планов
+                try:
+                    plan_start = datetime.fromisoformat(plan['start_time'])
+                    time_str = plan_start.strftime('%H:%M')
+                    importance_marker = "🔥" if plan['importance'] >= 8 else "📋"
+                    
+                    # Добавляем больше деталей о плане
+                    plan_line = f"• {time_str} {importance_marker} {plan['description']}"
+                    
+                    # Добавляем важную информацию
+                    if plan['importance'] >= 8:
+                        plan_line += f" (ВАЖНО!)"
+                        
+                    context_parts.append(plan_line)
+                    
+                except Exception as e:
+                    self.logger.error(f"Ошибка форматирования плана: {e}")
+                    continue
+            
+            # Добавляем инструкцию для AI
+            context_parts.append("\nИНСТРУКЦИЯ: ЗНАЙ СВОИ ПЛАНЫ! Упоминай их при вопросах о планах!")
+            context_parts.append("При вопросах о планах называй конкретное время и активность!")
+        else:
+            context_parts.append(f"\nПЛАНОВ НА СЕГОДНЯ: нет или уже выполнены")
+            # ОТЛАДКА: логируем если планов нет
+            self.logger.warning(f"Нет ближайших планов! Всего планов: {len(ai_plans)}, текущее время: {current_time}")
         
         return "\n".join(context_parts)
     
