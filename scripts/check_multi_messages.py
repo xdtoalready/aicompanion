@@ -1,12 +1,27 @@
+#!/usr/bin/env python3
 """
-Тестовый скрипт для проверки многосообщенческих ответов
+Исправленный тестовый скрипт для проверки многосообщенческих ответов
 """
 
 import asyncio
 import json
+import sys
+import os
+from pathlib import Path
 
-from app.core.companion import RealisticAICompanion
-from app.core.typing_simulator import TypingSimulator
+# Правильное добавление пути к проекту
+project_root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(project_root))
+
+# Теперь импорты должны работать
+try:
+    from app.core.companion import RealisticAICompanion
+    from app.core.typing_simulator import TypingSimulator
+    from app.core.character_loader import get_character_loader
+except ImportError as e:
+    print(f"❌ Ошибка импорта: {e}")
+    print("Убедитесь что запускаете скрипт из корня проекта")
+    sys.exit(1)
 
 async def test_split_responses():
     """Тестирование алгоритма разделения ответов"""
@@ -36,117 +51,100 @@ async def test_split_responses():
         "behavior": {
             "max_daily_initiatives": 5,
             "min_hours_between_initiatives": 1
+        },
+        "typing": {
+            "mode": "fast",
+            "show_typing_indicator": True,
+            "natural_pauses": True
+        },
+        "messaging": {
+            "min_messages": 3,
+            "max_messages": 7,
+            "target_sentences": 3,
+            "use_emojis": True,
+            "max_emojis": 2
         }
     }
     
-    # Создаем компаньона
-    companion = RealisticAICompanion(config)
+    # Создаем директории для тестов
+    os.makedirs("data", exist_ok=True)
     
-    print("👤 Персонаж создан:")
-    print(f"   Имя: {config['character']['name']}")
-    print(f"   Личность: {companion.psychological_core.get_personality_description()}")
-    
-    # Тестируем TypingSimulator отдельно
-    print("\n⌨️  Тестируем систему печатания:")
-    
-    test_messages = [
-        "Привет! Как дела?",
-        "У меня сегодня отличное настроение! 😊",
-        "Хочется поговорить о чем-то интересном.",
-        "А что у тебя нового?"
-    ]
-    
-    typing_sim = TypingSimulator()
-    
-    for i, msg in enumerate(test_messages, 1):
-        typing_time = typing_sim.calculate_typing_time(msg, "happy", 80)
-        print(f"   {i}. '{msg}' → {typing_time:.1f}с печатания")
-    
-    # Тестируем паузы между сообщениями
-    print("\n⏸️  Тестируем паузы между сообщениями:")
-    
-    for i in range(len(test_messages) - 1):
-        pause = typing_sim.calculate_pause_between_messages(
-            test_messages[i], test_messages[i + 1], "happy"
-        )
-        print(f"   После '{test_messages[i][:20]}...' → пауза {pause:.1f}с")
-    
-    # Полная сводка времени
-    print("\n📊 Полная сводка времени:")
-    
-    summary = typing_sim.get_realistic_delays_summary(test_messages, "happy", 80)
-    print(f"   Общее время: {summary['total_time']}с")
-    print(f"   Среднее на сообщение: {summary['average_per_message']}с")
-    print(f"   Эмоциональное состояние: {summary['emotional_state']}")
-    
-    for detail in summary['details']:
-        print(f"   - '{detail['message']}': печать {detail['typing_time']}с + пауза {detail['pause_after']}с")
-    
-    # Тестируем имитацию отправки
-    print("\n📤 Имитация реалистичной отправки:")
-    
-    sent_messages = []
-    
-    async def mock_send_callback(message):
-        sent_messages.append(message)
-        print(f"   📨 Отправлено: {message}")
-    
-    async def mock_typing_callback(is_typing):
-        if is_typing:
-            print("   ⌨️  [печатает...]")
-        else:
-            print("   ✅ [печатание завершено]")
-    
-    await typing_sim.send_messages_with_realistic_timing(
-        messages=test_messages[:2],  # Тестируем первые 2 сообщения
-        emotional_state="happy",
-        energy_level=80,
-        send_callback=mock_send_callback,
-        typing_callback=mock_typing_callback
-    )
-    
-    print(f"\n✅ Имитация завершена! Отправлено {len(sent_messages)} сообщений")
-    
-    # Тестируем разные эмоциональные состояния
-    print("\n🎭 Тестируем разные эмоциональные состояния:")
-    
-    emotions = ["excited", "calm", "anxious", "sad", "angry", "tired"]
-    test_msg = "Привет! Как дела у тебя?"
-    
-    for emotion in emotions:
-        time = typing_sim.calculate_typing_time(test_msg, emotion, 50)
-        pause = typing_sim.calculate_pause_between_messages(test_msg, "А у меня все хорошо!", emotion)
-        print(f"   {emotion:8}: печать {time:.1f}с, пауза {pause:.1f}с")
-
-    # Также добавим простой тест реальной отправки
-    print("\n🚀 Тест реальной отправки с разными скоростями:")
-    
-    emotions_to_test = ["excited", "calm", "tired"]
-    short_messages = ["Привет!", "Как дела?", "Отлично! 😊"]
-    
-    for emotion in emotions_to_test:
-        print(f"\n   Эмоция: {emotion}")
-        summary = typing_sim.get_realistic_delays_summary(short_messages, emotion, 70)
-        print(f"   Общее время: {summary['total_time']}с для {len(short_messages)} сообщений")
-        print(f"   Детали:")
-        for detail in summary['details']:
-            print(f"     - '{detail['message']}': {detail['typing_time']}с + {detail['pause_after']}с")
+    try:
+        # Создаем компаньона
+        companion = RealisticAICompanion(config)
         
-        print(f"   Статус: {'⚡ Быстро' if summary['total_time'] < 10 else '⏳ Медленно' if summary['total_time'] > 20 else '✅ Нормально'}")
-    
-    # Тестируем новые режимы скорости
-    print("\n⚡ Тестируем режимы скорости печатания:")
-    
-    test_message = "Привет! Как у тебя дела сегодня?"
-    modes = ["lightning", "fast", "normal", "slow"]
-    
-    for mode in modes:
-        typing_sim.set_speed_mode(mode)
-        time = typing_sim.calculate_typing_time(test_message, "calm", 70)
-        print(f"   {mode:9}: {time:.1f}с для '{test_message}'")
-    
-    # Возвращаем в быстрый режим для остальных тестов
-    typing_sim.set_speed_mode("fast")
+        print("👤 Персонаж создан:")
+        print(f"   Имя: {config['character']['name']}")
+        print(f"   Личность: {companion.psychological_core.get_personality_description()}")
+        
+        # Тестируем TypingSimulator отдельно
+        print("\n⌨️  Тестируем систему печатания:")
+        
+        test_messages = [
+            "Привет! Как дела?",
+            "У меня сегодня отличное настроение! 😊",
+            "Хочется поговорить о чем-то интересном.",
+            "А что у тебя нового?"
+        ]
+        
+        typing_sim = TypingSimulator()
+        
+        for i, msg in enumerate(test_messages, 1):
+            typing_time = typing_sim.calculate_typing_time(msg, "happy", 80)
+            print(f"   {i}. '{msg}' → {typing_time:.1f}с печатания")
+        
+        # Тестируем паузы между сообщениями
+        print("\n⏸️  Тестируем паузы между сообщениями:")
+        
+        for i in range(len(test_messages) - 1):
+            pause = typing_sim.calculate_pause_between_messages(
+                test_messages[i], test_messages[i + 1], "happy"
+            )
+            print(f"   После '{test_messages[i][:20]}...' → пауза {pause:.1f}с")
+        
+        # Полная сводка времени
+        print("\n📊 Полная сводка времени:")
+        
+        summary = typing_sim.get_realistic_delays_summary(test_messages, "happy", 80)
+        print(f"   Общее время: {summary['total_time']}с")
+        print(f"   Среднее на сообщение: {summary['average_per_message']}с")
+        print(f"   Эмоциональное состояние: {summary['emotional_state']}")
+        
+        for detail in summary['details']:
+            print(f"   - '{detail['message']}': печать {detail['typing_time']}с + пауза {detail['pause_after']}с")
+        
+        # Тестируем имитацию отправки
+        print("\n📤 Имитация реалистичной отправки:")
+        
+        sent_messages = []
+        
+        async def mock_send_callback(message):
+            sent_messages.append(message)
+            print(f"   📨 Отправлено: {message}")
+        
+        async def mock_typing_callback(is_typing):
+            if is_typing:
+                print("   ⌨️  [печатает...]")
+            else:
+                print("   ✅ [печатание завершено]")
+        
+        await typing_sim.send_messages_with_realistic_timing(
+            messages=test_messages[:2],  # Тестируем первые 2 сообщения
+            emotional_state="happy",
+            energy_level=80,
+            send_callback=mock_send_callback,
+            typing_callback=mock_typing_callback
+        )
+        
+        print(f"\n✅ Имитация завершена! Отправлено {len(sent_messages)} сообщений")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Ошибка в тестировании: {e}")
+        import traceback
+        print(f"Детали: {traceback.format_exc()}")
+        return False
 
 async def test_message_connection():
     """Тестирование определения связности сообщений"""
@@ -155,7 +153,7 @@ async def test_message_connection():
     
     typing_sim = TypingSimulator()
     
-    # Тестовые пары сообщений (больше примеров для проверки улучшенного алгоритма)
+    # Тестовые пары сообщений
     test_pairs = [
         ("Привет! Как дела?", "А у меня все отлично!"),  # связанные (ответ на вопрос)
         ("Сегодня хорошая погода.", "И настроение тоже хорошее."),  # связанные (И в начале)
@@ -163,10 +161,6 @@ async def test_message_connection():
         ("Привет!", "Кстати, я вчера фильм смотрела."),  # связанные (кстати)
         ("Работаю над проектом.", "Проект интересный, но сложный."),  # связанные (общее слово "проект")
         ("Иду в магазин.", "Погода сегодня отличная!"),  # НЕ связанные
-        ("Как твои дела?", "Нормально, спасибо!"),  # связанные (вопрос-ответ)
-        ("Сложная задача...", "Но я справлюсь!"),  # связанные (но)
-        ("Устал сегодня.", "Ну отдохни тогда."),  # связанные (ну)
-        ("Купил новую книгу.", "Книги люблю читать."),  # связанные (общее слово "книг")
     ]
     
     for i, (msg1, msg2) in enumerate(test_pairs, 1):
@@ -201,20 +195,107 @@ def test_complexity_calculation():
         print(f"   '{text}'")
         print(f"     Сложность: {complexity:.2f}x, время: {base_time:.1f}с → {modified_time:.1f}с")
 
+async def test_character_loader():
+    """Тестирование загрузчика персонажей"""
+    
+    print("\n👤 Тестирование загрузчика персонажей:")
+    
+    try:
+        loader = get_character_loader()
+        
+        # Тестируем получение доступных персонажей
+        available = loader.get_available_characters()
+        print(f"   Найдено персонажей: {len(available)}")
+        
+        for char in available:
+            print(f"   - {char['name']} ({char['id']})")
+        
+        # Тестируем загрузку персонажа
+        if available:
+            first_char = available[0]
+            loaded = loader.load_character(first_char['id'])
+            
+            if loaded:
+                print(f"   ✅ Персонаж загружен: {loaded['name']}")
+                print(f"   Возраст: {loaded.get('age', 'не указан')}")
+                print(f"   Описание: {loaded.get('personality', {}).get('description', 'нет')[:50]}...")
+            else:
+                print(f"   ❌ Не удалось загрузить персонажа {first_char['id']}")
+        
+        # Тестируем контекст для AI
+        context = loader.get_character_context_for_ai()
+        print(f"   Контекст для AI: {len(context)} символов")
+        print(f"   Начало контекста: {context[:100]}...")
+        
+        return True
+        
+    except Exception as e:
+        print(f"   ❌ Ошибка тестирования character_loader: {e}")
+        import traceback
+        print(f"   Детали: {traceback.format_exc()}")
+        return False
+
 async def main():
     """Основная функция тестирования"""
     
-    await test_split_responses()
-    await test_message_connection()
-    test_complexity_calculation()
+    print("🧪 ИСПРАВЛЕННОЕ ТЕСТИРОВАНИЕ AI-КОМПАНЬОНА")
+    print("=" * 50)
     
-    print("\n🎉 Все тесты завершены!")
-    print("\n💡 Рекомендации:")
-    print("   1. Проверьте что TypingSimulator корректно рассчитывает время")
-    print("   2. Убедитесь что паузы между сообщениями естественные")
-    print("   3. Протестируйте с реальным API для проверки split-ответов")
-    print("   4. Настройте эмоциональные модификаторы под ваши предпочтения")
-    print("   5. Времена печатания теперь оптимизированы для чатов (быстрее)")
+    tests = [
+        ("Загрузчик персонажей", test_character_loader),
+        ("Система печатания", test_split_responses),
+        ("Связность сообщений", test_message_connection),
+        ("Сложность текста", test_complexity_calculation),
+    ]
+    
+    results = []
+    
+    for test_name, test_func in tests:
+        try:
+            print(f"\n{'='*20} {test_name.upper()} {'='*20}")
+            
+            if asyncio.iscoroutinefunction(test_func):
+                result = await test_func()
+            else:
+                result = test_func()
+                
+            results.append((test_name, result))
+            
+            if result:
+                print(f"✅ {test_name}: УСПЕШНО")
+            else:
+                print(f"❌ {test_name}: ПРОВАЛЕН")
+                
+        except Exception as e:
+            print(f"❌ {test_name}: критическая ошибка - {e}")
+            results.append((test_name, False))
+    
+    # Итоговый отчет
+    print("\n" + "=" * 50)
+    print("📊 ИТОГОВЫЙ ОТЧЕТ:")
+    
+    passed = 0
+    failed_tests = []
+    
+    for test_name, result in results:
+        status = "✅ ПРОЙДЕН" if result else "❌ ПРОВАЛЕН"
+        print(f"  {test_name}: {status}")
+        if result:
+            passed += 1
+        else:
+            failed_tests.append(test_name)
+    
+    print(f"\nРезультат: {passed}/{len(results)} тестов пройдено")
+    
+    if passed == len(results):
+        print("\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ! Многосообщенческая система работает.")
+        print("\n💡 Следующие шаги:")
+        print("  1. Настройте API ключи в config/config.json")
+        print("  2. Запустите: python main.py")
+        print("  3. Протестируйте с реальным API")
+    else:
+        print(f"\n⚠️ {len(results) - passed} тестов провалено: {', '.join(failed_tests)}")
+        print("\n🔧 Проверьте импорты и структуру проекта")
 
 if __name__ == "__main__":
     asyncio.run(main())

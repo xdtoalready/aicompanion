@@ -1,4 +1,4 @@
-# Система загрузки и управления персонажами
+# Система загрузки и управления персонажами (ИСПРАВЛЕНО)
 
 import json
 import os
@@ -26,6 +26,8 @@ class CharacterLoader:
         self._load_current_character()
         self._load_relationship_history()
 
+    # ... (остальные методы остаются без изменений) ...
+    
     def get_available_characters(self) -> List[Dict[str, str]]:
         """Возвращает список доступных персонажей"""
         characters = []
@@ -273,5 +275,12 @@ class CharacterLoader:
             self.logger.error(f"Ошибка сохранения истории отношений: {e}")
 
 
-# Глобальный экземпляр для использования в приложении
-character_loader = CharacterLoader()
+# ИСПРАВЛЕНО: Используем паттерн Singleton вместо глобальной переменной
+_character_loader_instance = None
+
+def get_character_loader() -> CharacterLoader:
+    """Получает единственный экземпляр CharacterLoader"""
+    global _character_loader_instance
+    if _character_loader_instance is None:
+        _character_loader_instance = CharacterLoader()
+    return _character_loader_instance

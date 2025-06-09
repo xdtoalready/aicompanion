@@ -1,6 +1,5 @@
 # Основной модуль AI-компаньона с многосообщенческими ответами
 
-from .character_loader import character_loader
 import asyncio
 import json
 import logging
@@ -11,6 +10,8 @@ from openai import AsyncOpenAI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+# Импорт character_loader
+from .character_loader import get_character_loader
 from .virtual_life import VirtualLifeManager, VirtualActivity
 
 # Относительные импорты для модулей внутри core
@@ -38,6 +39,9 @@ class RealisticAICompanion:
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
 
+        # Получаем character_loader через функцию
+        self.character_loader = get_character_loader()
+
         # Инициализация компонентов
         self.psychological_core = PsychologicalCore()
 
@@ -48,16 +52,13 @@ class RealisticAICompanion:
         # Оставляем старую систему для совместимости
         self.memory_system = AdvancedMemorySystem()
 
-        # НОВОЕ: Инициализируем загрузчик персонажей
-        global character_loader
-
         # Загружаем персонажа по умолчанию если ещё не загружен
-        if not character_loader.get_current_character():
+        if not self.character_loader.get_current_character():
             profile_path = config.get("character_profile_path")
             profile_data = config.get("character_profile")
 
             if profile_path or profile_data:
-                loaded = character_loader.load_character(
+                loaded = self.character_loader.load_character(
                     profile_data.get("id") if isinstance(profile_data, dict) else None,
                     profile_path=profile_path,
                     profile_data=profile_data,
@@ -67,9 +68,9 @@ class RealisticAICompanion:
                         f"Загружен персонаж из конфигурации: {loaded.get('name')}"
                     )
             else:
-                available_chars = character_loader.get_available_characters()
+                available_chars = self.character_loader.get_available_characters()
                 if available_chars:
-                    character_loader.load_character(available_chars[0]["id"])
+                    self.character_loader.load_character(available_chars[0]["id"])
                     self.logger.info(
                         f"Автоматически загружен персонаж: {available_chars[0]['name']}"
                     )
@@ -80,8 +81,8 @@ class RealisticAICompanion:
             base_url="https://openrouter.ai/api/v1",
         )
 
-        # ИЗМЕНЕНО: Передаём character_loader в AI клиент
-        self.optimized_ai = OptimizedAI(self.ai_client, config, character_loader)
+        # Передаём character_loader в AI клиент
+        self.optimized_ai = OptimizedAI(self.ai_client, config, self.character_loader)
 
         # Система печатания
         typing_config = config.get("typing", {})
@@ -99,7 +100,7 @@ class RealisticAICompanion:
         # Система виртуальной жизни
         self.virtual_life = VirtualLifeManager(
             db_path=config.get("database", {}).get("path", "data/companion.db"),
-            character_loader=character_loader,
+            character_loader=self.character_loader,
         )
 
         # Планировщик
@@ -120,7 +121,7 @@ class RealisticAICompanion:
 
     def get_current_character_info(self) -> Dict[str, Any]:
         """Получает информацию о текущем персонаже"""
-        character = character_loader.get_current_character()
+        character = self.character_loader.get_current_character()
         if not character:
             return {"name": "AI", "loaded": False, "error": "Персонаж не загружен"}
 
@@ -146,28 +147,25 @@ class RealisticAICompanion:
             self.consciousness_cycle, IntervalTrigger(minutes=5), id="consciousness"
         )
 
-        # Остальные задачи остаются без изменений...
+        # Остальные задачи...
         self.scheduler.add_job(
             self.run_emotional_memory_consolidation,
             IntervalTrigger(hours=6),
             id="emotional_memory_consolidation",
         )
 
-        # Глубокая эмоциональная консолидация раз в день
         self.scheduler.add_job(
             self.deep_emotional_consolidation,
             IntervalTrigger(days=1),
             id="deep_emotional_consolidation",
         )
 
-        # Анализ эмоций новых воспоминаний каждые 2 часа
         self.scheduler.add_job(
             self.analyze_recent_memories_emotions,
             IntervalTrigger(hours=2),
             id="emotion_analysis",
         )
 
-        # Обновление виртуальной жизни персонажа каждые минуту
         self.scheduler.add_job(
             self.update_virtual_life,
             IntervalTrigger(minutes=1),
@@ -666,8 +664,8 @@ class RealisticAICompanion:
             db_context = self.enhanced_memory.get_context_for_response(message)
             current_state["memory_context"] = db_context
 
-            # НОВОЕ: Добавляем контекст персонажа
-            character_context = character_loader.get_character_context_for_ai()
+            # Добавляем контекст персонажа
+            character_context = self.character_loader.get_character_context_for_ai()
             current_state["character_context"] = character_context
 
             self.logger.info(f"Контекст персонажа: {character_context[:100]}...")
@@ -685,8 +683,8 @@ class RealisticAICompanion:
                 message, ai_messages, mood_before, mood_after
             )
 
-            # НОВОЕ: Обновляем прогресс отношений с персонажем
-            character = character_loader.get_current_character()
+            # Обновляем прогресс отношений с персонажем
+            character = self.character_loader.get_current_character()
             if character:
                 # Увеличиваем близость при позитивном общении
                 current_intimacy = character.get("current_relationship", {}).get(
@@ -697,7 +695,7 @@ class RealisticAICompanion:
                     and random.random() < 0.1
                 ):  # 10% шанс
                     new_intimacy = min(10, current_intimacy + 0.1)
-                    character_loader.update_relationship_progress(
+                    self.character_loader.update_relationship_progress(
                         {
                             "intimacy_level": new_intimacy,
                             "last_positive_interaction": datetime.now().isoformat(),
@@ -716,7 +714,7 @@ class RealisticAICompanion:
         except Exception as e:
             self.logger.error(f"Ошибка обработки сообщения: {e}")
             # Fallback с учётом персонажа
-            character = character_loader.get_current_character()
+            character = self.character_loader.get_current_character()
             if character and "марин" in character.get("name", "").lower():
                 return [
                     "Ой! 😅 Что-то пошло не так...",
