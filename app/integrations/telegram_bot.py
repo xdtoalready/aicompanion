@@ -58,6 +58,8 @@ class TelegramCompanion(RealisticAICompanion):
         self.app.add_handler(CommandHandler("full_reset", self.full_reset_command))
         self.app.add_handler(CommandHandler("reset_plans", self.reset_plans_command))
         self.app.add_handler(CommandHandler("test_initiative", self.test_initiative_command))
+
+        self.app.add_handler(CommandHandler("test_delivery", self.test_delivery_command))
         
         # Команды планирования
         if self.commands_enabled:
@@ -1562,41 +1564,68 @@ class TelegramCompanion(RealisticAICompanion):
             )
     
     async def send_telegram_messages_with_timing(self, chat_id: int, messages: List[str], 
-                                               current_state: Dict[str, Any]):
-        """Отправка сообщений в Telegram с реалистичными паузами"""
+                                           current_state: Dict[str, Any]):
+        """Отправка сообщений в Telegram с реалистичными паузами (ИСПРАВЛЕНО)"""
+        
+        if not messages:
+            self.logger.warning("Нет сообщений для отправки")
+            return
         
         emotional_state = current_state.get('dominant_emotion', 'calm')
         energy_level = current_state.get('energy_level', 50)
         
+        self.logger.info(f"📨 Начинаю отправку {len(messages)} сообщений в chat {chat_id}")
+        
         # Callback для отправки сообщения в Telegram
         async def send_callback(message):
             try:
+                self.logger.info(f"📤 Отправляю сообщение: {message[:50]}...")
                 await self.app.bot.send_message(chat_id=chat_id, text=message)
+                self.logger.info("✅ Сообщение отправлено успешно")
             except Exception as e:
-                self.logger.error(f"Ошибка отправки сообщения в Telegram: {e}")
+                self.logger.error(f"❌ ОШИБКА отправки сообщения в Telegram: {e}")
+                self.logger.error(f"❌ Текст сообщения: {message}")
+                raise e  # Пробрасываем ошибку дальше
         
         # Callback для показа "печатает..."
         async def typing_callback(is_typing):
             try:
                 if is_typing:
                     await self.app.bot.send_chat_action(chat_id=chat_id, action="typing")
+                    self.logger.debug("⌨️ Показан индикатор печатания")
             except Exception as e:
-                self.logger.error(f"Ошибка показа typing: {e}")
+                self.logger.error(f"❌ Ошибка показа typing: {e}")
         
         # Показываем предварительную сводку времени
         timing_summary = self.typing_simulator.get_realistic_delays_summary(
             messages, emotional_state, energy_level
         )
-        self.logger.info(f"Отправка {len(messages)} сообщений, планируемое время: {timing_summary['total_time']}с")
+        self.logger.info(f"⏱️ Планируемое время доставки: {timing_summary['total_time']}с")
         
-        # Отправляем с реалистичными паузами
-        await self.typing_simulator.send_messages_with_realistic_timing(
-            messages=messages,
-            emotional_state=emotional_state,
-            energy_level=energy_level,
-            send_callback=send_callback,
-            typing_callback=typing_callback
-        )
+        try:
+            # Отправляем с реалистичными паузами
+            await self.typing_simulator.send_messages_with_realistic_timing(
+                messages=messages,
+                emotional_state=emotional_state,
+                energy_level=energy_level,
+                send_callback=send_callback,
+                typing_callback=typing_callback
+            )
+            
+            self.logger.info(f"🎉 ВСЕ {len(messages)} СООБЩЕНИЙ ДОСТАВЛЕНЫ УСПЕШНО!")
+            
+        except Exception as e:
+            self.logger.error(f"💥 КРИТИЧЕСКАЯ ОШИБКА при отправке сообщений: {e}")
+            self.logger.error(f"💥 Состояние: emotion={emotional_state}, energy={energy_level}")
+            
+            # Fallback: отправляем хотя бы первое сообщение
+            if messages:
+                try:
+                    self.logger.info("🆘 Отправляю fallback сообщение...")
+                    await self.app.bot.send_message(chat_id=chat_id, text=messages[0])
+                    self.logger.info("✅ Fallback сообщение отправлено")
+                except Exception as fallback_error:
+                    self.logger.error(f"💀 Даже fallback не работает: {fallback_error}")
     
     async def deliver_message(self, message: str, message_type: str):
         """Отправка инициативного сообщения пользователям"""
@@ -1611,7 +1640,7 @@ class TelegramCompanion(RealisticAICompanion):
         
         for user_id in self.allowed_users:
             try:
-                # ИЗМЕНЕНО: Теперь обрабатываем как список сообщений
+                # Теперь обрабатываем как список сообщений
                 if isinstance(message, str):
                     messages = [message]
                 else:
@@ -1632,21 +1661,47 @@ class TelegramCompanion(RealisticAICompanion):
     async def send_initiative_messages(self, current_state: Dict):
         """Отправка инициативных сообщений через Telegram"""
         
-        # Получаем релевантные воспоминания
-        recent_memories = self.memory_system.get_relevant_memories("пользователь общение", 3)
+        self.logger.info("🚀 Генерация инициативных сообщений...")
         
-        # Добавляем контекст памяти в состояние
-        memory_context = "\n".join([m["content"] for m in recent_memories])
-        current_state['memory_context'] = memory_context if memory_context else 'Еще мало знаешь о пользователе'
-        
+        # Получаем контекст из базы данных
+        db_context = self.enhanced_memory.get_context_for_response(
+            "инициативное общение"
+        )
+        current_state["memory_context"] = db_context
+
+        # Добавляем контекст виртуальной жизни
+        virtual_context = self.virtual_life.get_current_context_for_ai()
+        current_state["virtual_life_context"] = virtual_context
+
+        # Добавляем контекст персонажа
+        character_context = self.character_loader.get_character_context_for_ai()
+        current_state["character_context"] = character_context
+
+        # Получаем текущего персонажа для специальных тем
+        character = self.character_loader.get_current_character()
+        initiative_prompt = "Хочу написать пользователю что-то интересное"
+
+        if character:
+            # Специальные темы для инициатив в зависимости от персонажа
+            if "марин" in character.get("name", "").lower():
+                special_topics = [
+                    "рассказать о новом косплее который планирую",
+                    "поделиться впечатлениями от аниме которое смотрела",
+                    "предложить вместе поработать над костюмом",
+                    "рассказать о смешном случае на конвенции",
+                    "спросить мнение о новом наряде",
+                ]
+                initiative_prompt = f"Хочу {random.choice(special_topics)}"
+
         try:
             # Генерируем множественные сообщения
             messages = await self.optimized_ai.generate_split_response(
-                "Хочу написать пользователю что-то интересное", 
-                current_state
+                initiative_prompt, current_state
             )
-            
-            # Отправляем всем разрешенным пользователям
+
+            self.logger.info(f"🎯 Сгенерировано {len(messages)} инициативных сообщений")
+
+            # ИСПРАВЛЕНО: Отправляем напрямую через Telegram с паузами
             for user_id in self.allowed_users:
                 try:
                     await self.send_telegram_messages_with_timing(
@@ -1654,17 +1709,63 @@ class TelegramCompanion(RealisticAICompanion):
                         messages=messages,
                         current_state=current_state
                     )
+                    self.logger.info(f"✅ Инициативные сообщения доставлены пользователю {user_id}")
                 except Exception as e:
-                    self.logger.error(f"Ошибка отправки инициативы пользователю {user_id}: {e}")
-            
+                    self.logger.error(f"❌ Ошибка отправки инициативы пользователю {user_id}: {e}")
+
+            # Сохраняем в БД как инициативный диалог
+            mood_current = current_state.get("dominant_emotion", "calm")
+            self.enhanced_memory.add_conversation(
+                "[ИНИЦИАТИВА]", messages, mood_current, mood_current
+            )
+
             # Обновляем состояние
             self.psychological_core.update_emotional_state("positive_interaction", 0.5)
             self.last_message_time = datetime.now()
+
+            self.logger.info(f"🎊 Инициативные сообщения успешно отправлены: {len(messages)} шт.")
+
+        except Exception as e:
+            self.logger.error(f"💥 КРИТИЧЕСКАЯ ошибка генерации инициативы: {e}")
             
-            self.logger.info(f"Инициативные сообщения отправлены: {len(messages)} шт.")
+            # Fallback: отправляем простое сообщение
+            fallback_msg = "Привет! Как дела? 😊"
+            for user_id in self.allowed_users:
+                try:
+                    await self.app.bot.send_message(chat_id=user_id, text=fallback_msg)
+                    self.logger.info(f"🆘 Fallback сообщение отправлено пользователю {user_id}")
+                except Exception as fallback_error:
+                    self.logger.error(f"💀 Даже fallback провалился для {user_id}: {fallback_error}")
+
+    async def test_delivery_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Тестирование системы доставки сообщений"""
+        if not self.commands_enabled:
+            return
+        
+        await update.message.reply_text("🧪 Тестирую систему доставки...")
+        
+        try:
+            # Тестируем множественную отправку
+            test_messages = [
+                "Первое тестовое сообщение! 🥇",
+                "Второе тестовое сообщение! 🥈", 
+                "Третье тестовое сообщение! 🥉"
+            ]
+            
+            current_state = await self.optimized_ai.get_simple_mood_calculation(self.psychological_core)
+            
+            self.logger.info("🧪 Начинаю тест доставки 3 сообщений...")
+            
+            await self.send_telegram_messages_with_timing(
+                chat_id=update.effective_chat.id,
+                messages=test_messages,
+                current_state=current_state
+            )
+            
+            await update.message.reply_text("✅ Тест доставки завершен! Проверьте логи.")
             
         except Exception as e:
-            self.logger.error(f"Ошибка генерации инициативы: {e}")
+            await update.message.reply_text(f"❌ Ошибка теста доставки: {e}")
     
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка ошибок Telegram"""

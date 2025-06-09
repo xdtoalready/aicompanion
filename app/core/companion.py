@@ -1093,8 +1093,14 @@ class RealisticAICompanion:
         current_state: Dict[str, Any],
         message_type: str = "response",
     ):
-        """Доставка сообщений с реалистичным печатанием и адаптивной скоростью"""
+        """Доставка сообщений с реалистичным печатанием и адаптивной скоростью (ИСПРАВЛЕНО)"""
 
+        if not messages:
+            self.logger.warning("deliver_messages_with_timing: Нет сообщений для доставки")
+            return
+
+        self.logger.info(f"🚀 Доставка {len(messages)} сообщений типа '{message_type}'")
+        
         emotional_state = current_state.get("dominant_emotion", "calm")
         energy_level = current_state.get("energy_level", 50)
 
@@ -1113,32 +1119,46 @@ class RealisticAICompanion:
 
         # Создаем callback'и для системы печатания
         async def send_callback(msg):
-            await self.deliver_message(msg, message_type)
+            try:
+                self.logger.info(f"📨 Вызов deliver_message для: {msg[:30]}...")
+                await self.deliver_message(msg, message_type)
+                self.logger.info("✅ deliver_message выполнен успешно")
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка в deliver_message: {e}")
+                raise
 
         async def typing_callback(is_typing):
             # Будет переопределено в интеграциях
             if is_typing:
-                self.logger.debug("Показываем 'печатает...'")
+                self.logger.debug("⌨️ Показываем 'печатает...'")
             else:
-                self.logger.debug("Скрываем 'печатает...'")
+                self.logger.debug("🔇 Скрываем 'печатает...'")
 
         # Показываем сводку времени (если включено в логах)
-        if self.config.get("logging", {}).get("log_typing_timings", False):
+        if self.config.get("logging", {}).get("log_timing_details", True):
             timing_summary = self.typing_simulator.get_realistic_delays_summary(
                 messages, emotional_state, energy_level
             )
             self.logger.info(
-                f"Планируемое время отправки: {timing_summary['total_time']}с, режим: {self.typing_simulator.current_mode}"
+                f"⏱️ Планируемое время отправки: {timing_summary['total_time']}с, режим: {self.typing_simulator.current_mode}"
             )
 
-        # Отправляем с реалистичными паузами
-        await self.typing_simulator.send_messages_with_realistic_timing(
-            messages=messages,
-            emotional_state=emotional_state,
-            energy_level=energy_level,
-            send_callback=send_callback,
-            typing_callback=typing_callback,
-        )
+        try:
+            # Отправляем с реалистичными паузами
+            await self.typing_simulator.send_messages_with_realistic_timing(
+                messages=messages,
+                emotional_state=emotional_state,
+                energy_level=energy_level,
+                send_callback=send_callback,
+                typing_callback=typing_callback,
+            )
+            
+            self.logger.info(f"🎊 ДОСТАВКА ЗАВЕРШЕНА: {len(messages)} сообщений")
+            
+        except Exception as e:
+            self.logger.error(f"💥 КРИТИЧЕСКАЯ ОШИБКА доставки: {e}")
+            self.logger.error(f"💥 Параметры: type={message_type}, emotion={emotional_state}")
+            raise
 
     async def update_physical_state(self):
         """Обновление физиологического состояния"""

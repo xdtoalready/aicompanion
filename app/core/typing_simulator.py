@@ -204,45 +204,102 @@ class TypingSimulator:
         return False
     
     async def send_messages_with_realistic_timing(self, messages: List[str], 
-                                                emotional_state: str = "calm",
-                                                energy_level: int = 50,
-                                                send_callback=None,
-                                                typing_callback=None) -> None:
-        """Отправляет сообщения с реалистичными паузами"""
+                                            emotional_state: str = "calm",
+                                            energy_level: int = 50,
+                                            send_callback=None,
+                                            typing_callback=None) -> None:
+        """Отправляет сообщения с реалистичными паузами (ИСПРАВЛЕНО)"""
         
         if not messages:
+            self.logger.warning("send_messages_with_realistic_timing: Нет сообщений для отправки")
             return
         
-        self.logger.info(f"Начинаю отправку {len(messages)} сообщений с эмоцией: {emotional_state}")
+        self.logger.info(f"🚀 Начинаю отправку {len(messages)} сообщений с эмоцией: {emotional_state}")
         
         for i, message in enumerate(messages):
-            # Показываем "печатает..."
-            if typing_callback:
-                await typing_callback(True)
+            try:
+                self.logger.info(f"📨 Обрабатываю сообщение {i+1}/{len(messages)}: {message[:30]}...")
+                
+                # Показываем "печатает..."
+                if typing_callback:
+                    try:
+                        await typing_callback(True)
+                        self.logger.debug("⌨️ Показан индикатор печатания")
+                    except Exception as e:
+                        self.logger.error(f"❌ Ошибка показа typing: {e}")
+                
+                # Вычисляем время печатания
+                typing_time = self.calculate_typing_time(message, emotional_state, energy_level)
+                self.logger.debug(f"⏱️ Время печатания: {typing_time:.1f}с")
+                
+                # Имитируем печатание
+                await asyncio.sleep(typing_time)
+                
+                # Убираем "печатает..." и отправляем сообщение
+                if typing_callback:
+                    try:
+                        await typing_callback(False)
+                        self.logger.debug("🔇 Скрыт индикатор печатания")
+                    except Exception as e:
+                        self.logger.error(f"❌ Ошибка скрытия typing: {e}")
+                
+                # ОТПРАВЛЯЕМ СООБЩЕНИЕ
+                if send_callback:
+                    try:
+                        self.logger.info(f"📤 Отправляю сообщение {i+1}: {message[:30]}...")
+                        await send_callback(message)
+                        self.logger.info(f"✅ Сообщение {i+1} отправлено успешно")
+                    except Exception as e:
+                        self.logger.error(f"💥 КРИТИЧЕСКАЯ ОШИБКА отправки сообщения {i+1}: {e}")
+                        self.logger.error(f"💥 Текст сообщения: {message}")
+                        # НЕ прерываем отправку остальных сообщений, продолжаем
+                        continue
+                else:
+                    self.logger.warning(f"⚠️ send_callback не задан для сообщения {i+1}")
+                
+                # Пауза перед следующим сообщением (если есть)
+                if i < len(messages) - 1:
+                    pause_time = self.calculate_pause_between_messages(
+                        message, messages[i + 1], emotional_state
+                    )
+                    
+                    self.logger.debug(f"⏸️ Пауза перед следующим сообщением: {pause_time:.1f}с")
+                    await asyncio.sleep(pause_time)
             
-            # Вычисляем время печатания
+            except Exception as e:
+                self.logger.error(f"💥 Ошибка обработки сообщения {i+1}: {e}")
+                # Продолжаем со следующим сообщением
+                continue
+        
+        self.logger.info(f"🎊 Отправка {len(messages)} сообщений ЗАВЕРШЕНА")
+
+    def debug_timing_calculation(self, messages: List[str], emotional_state: str = "calm", energy_level: int = 50):
+        """Отладочная информация о расчете времени"""
+        
+        self.logger.info(f"🔍 ОТЛАДКА РАСЧЕТА ВРЕМЕНИ:")
+        self.logger.info(f"   Режим печатания: {self.current_mode}")
+        self.logger.info(f"   Эмоциональное состояние: {emotional_state}")
+        self.logger.info(f"   Уровень энергии: {energy_level}")
+        self.logger.info(f"   Количество сообщений: {len(messages)}")
+        
+        total_time = 0
+        for i, message in enumerate(messages):
             typing_time = self.calculate_typing_time(message, emotional_state, energy_level)
             
-            # Имитируем печатание
-            await asyncio.sleep(typing_time)
-            
-            # Убираем "печатает..." и отправляем сообщение
-            if typing_callback:
-                await typing_callback(False)
-            
-            if send_callback:
-                await send_callback(message)
-            
-            # Пауза перед следующим сообщением (если есть)
+            pause_time = 0
             if i < len(messages) - 1:
                 pause_time = self.calculate_pause_between_messages(
                     message, messages[i + 1], emotional_state
                 )
-                
-                self.logger.debug(f"Пауза перед следующим сообщением: {pause_time:.1f}с")
-                await asyncio.sleep(pause_time)
+            
+            message_time = typing_time + pause_time
+            total_time += message_time
+            
+            self.logger.info(f"   Сообщение {i+1}: печатание={typing_time:.1f}с, пауза={pause_time:.1f}с, итого={message_time:.1f}с")
         
-        self.logger.info("Отправка сообщений завершена")
+        self.logger.info(f"   ОБЩЕЕ ВРЕМЯ: {total_time:.1f}с")
+        
+        return total_time
     
     def get_realistic_delays_summary(self, messages: List[str], 
                                    emotional_state: str = "calm",
