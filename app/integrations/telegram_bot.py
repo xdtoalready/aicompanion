@@ -12,7 +12,6 @@ from telegram.ext import (
     filters, 
     ContextTypes
 )
-from app.core.character_loader import character_loader
 
 from app.core.companion import RealisticAICompanion
 
@@ -320,8 +319,8 @@ class TelegramCompanion(RealisticAICompanion):
         if not self.commands_enabled:
             return
         
-        available_chars = character_loader.get_available_characters()
-        current_char = character_loader.get_current_character()
+        available_chars = self.character_loader.get_available_characters()
+        current_char = self.character_loader.get_current_character()
         current_name = current_char.get('name', 'Не загружен') if current_char else 'Не загружен'
         
         if not available_chars:
@@ -361,14 +360,14 @@ class TelegramCompanion(RealisticAICompanion):
         new_character_id = context.args[0].lower()
         
         # Получаем информацию о старом персонаже
-        old_char = character_loader.get_current_character()
+        old_char = self.character_loader.get_current_character()
         old_name = old_char.get('name', 'Неизвестный') if old_char else 'Никто'
         
         # Переключаемся
-        success = character_loader.switch_character(new_character_id)
+        success = self.character_loader.switch_character(new_character_id)
         
         if success:
-            new_char = character_loader.get_current_character()
+            new_char = self.character_loader.get_current_character()
             new_name = new_char.get('name', 'Новый персонаж')
             
             # Создаем сообщения о переключении с учётом нового персонажа
@@ -532,7 +531,7 @@ class TelegramCompanion(RealisticAICompanion):
         if not self.commands_enabled:
             return
         
-        character = character_loader.get_current_character()
+        character = self.character_loader.get_current_character()
         
         if not character:
             await update.message.reply_text(
@@ -596,7 +595,7 @@ class TelegramCompanion(RealisticAICompanion):
         if not self.commands_enabled:
             return
         
-        character = character_loader.get_current_character()
+        character = self.character_loader.get_current_character()
         
         if not character:
             await update.message.reply_text("❌ Персонаж не загружен!")
@@ -677,13 +676,13 @@ class TelegramCompanion(RealisticAICompanion):
             await update.message.reply_text("❌ Уровень должен быть от 1 до 10!")
             return
         
-        character = character_loader.get_current_character()
+        character = self.character_loader.get_current_character()
         if not character:
             await update.message.reply_text("❌ Персонаж не загружен!")
             return
         
         # Обновляем уровень близости
-        character_loader.update_relationship_progress({
+        self.character_loader.update_relationship_progress({
             'intimacy_level': new_level
         })
         
