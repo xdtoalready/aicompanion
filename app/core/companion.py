@@ -96,8 +96,6 @@ class RealisticAICompanion:
         # Передаём character_loader в AI клиент
         self.optimized_ai = OptimizedAI(self.api_manager, config, self.character_loader)
 
-        self.optimized_ai.virtual_life_manager = self.virtual_life
-
         # Система печатания
         typing_config = config.get("typing", {})
         self.typing_simulator = TypingSimulator(
@@ -111,11 +109,14 @@ class RealisticAICompanion:
         )
         self.typing_indicator = TypingIndicator()
 
-        # Система виртуальной жизни
+        # Система виртуальной жизни СНАЧАЛА
         self.virtual_life = VirtualLifeManager(
             db_path=config.get("database", {}).get("path", "data/companion.db"),
             character_loader=self.character_loader,
         )
+
+        # Теперь передаем VirtualLifeManager ПОСЛЕ его создания
+        self.optimized_ai.virtual_life_manager = self.virtual_life
 
         # Планировщик
         self.scheduler = AsyncIOScheduler()
