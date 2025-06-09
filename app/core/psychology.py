@@ -50,7 +50,13 @@ class PsychologicalCore:
             "morning": ["coffee", "check_phone", "plan_day"],
             "work": ["emails", "meetings", "creative_work"],
             "evening": ["unwind", "social_media", "prepare_tomorrow"],
-            "night": ["read", "reflect", "sleep"]
+            "night": ["read", "reflect", "sleep"],
+            
+            # Выходные привычки
+            "weekend_morning": ["sleep_in", "lazy_breakfast", "scroll_social_media"],
+            "weekend_day": ["hobby_time", "meet_friends", "shopping", "walk_outside"],
+            "weekend_evening": ["movie_night", "cooking", "gaming", "video_calls"],
+            "weekend_night": ["late_reading", "plan_next_week", "relax"]
         }
     
     def calculate_current_mood(self, external_factors: Dict = None) -> float:
@@ -178,14 +184,28 @@ class PsychologicalCore:
                 self.personality_traits[trait] = new_value
     
     def get_current_activity(self) -> str:
-        """Определяет текущую активность по времени и привычкам"""
+        """Определяет текущую активность с учетом дня недели"""
         current_hour = datetime.now().hour
+        is_weekend = datetime.now().weekday() >= 5
         
-        if 6 <= current_hour <= 9:
-            return random.choice(self.habits["morning"])
-        elif 9 <= current_hour <= 17:
-            return random.choice(self.habits["work"])
-        elif 17 <= current_hour <= 22:
-            return random.choice(self.habits["evening"])
+        if is_weekend:
+            # ВЫХОДНЫЕ активности (используем новые привычки)
+            if 6 <= current_hour <= 10:
+                return random.choice(self.habits["weekend_morning"])
+            elif 10 <= current_hour <= 17:
+                return random.choice(self.habits["weekend_day"])
+            elif 17 <= current_hour <= 22:
+                return random.choice(self.habits["weekend_evening"])
+            else:
+                return random.choice(self.habits["weekend_night"])
+        
         else:
-            return random.choice(self.habits["night"])
+            # РАБОЧИЕ ДНИ (оригинальная логика)
+            if 6 <= current_hour <= 9:
+                return random.choice(self.habits["morning"])
+            elif 9 <= current_hour <= 17:
+                return random.choice(self.habits["work"])
+            elif 17 <= current_hour <= 22:
+                return random.choice(self.habits["evening"])
+            else:
+                return random.choice(self.habits["night"])

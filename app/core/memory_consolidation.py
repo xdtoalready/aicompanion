@@ -11,9 +11,9 @@ from openai import AsyncOpenAI
 class EmotionalMemoryConsolidator:
     """Система памяти с эмоциональным интеллектом и динамическими порогами"""
     
-    def __init__(self, db_path: str, ai_client, config: Dict):
+    def __init__(self, db_path: str, api_manager, config: Dict):
         self.db_path = db_path
-        self.ai_client = ai_client
+        self.api_manager = api_manager  # Теперь используем manager
         self.config = config
         self.logger = logging.getLogger(__name__)
         
@@ -330,14 +330,18 @@ class EmotionalMemoryConsolidator:
         compression_prompt = self._build_emotional_compression_prompt(level, dominant_emotion, avg_intensity, user_context)
         
         try:
-            response = await self.ai_client.chat.completions.create(
+            # ИЗМЕНЕНО: Используем analytics API для консолидации
+            from .multi_api_manager import APIUsageType
+            
+            response = await self.api_manager.make_request(
+                APIUsageType.ANALYTICS,  # Используем analytics пул
                 model=self.config.get('ai', {}).get('model', 'deepseek/deepseek-chat'),
                 messages=[
                     {"role": "system", "content": compression_prompt},
                     {"role": "user", "content": f"Воспоминания для эмоциональной консолидации:\n{full_text}"}
                 ],
                 max_tokens=250,
-                temperature=0.2  # Низкая температура для стабильности эмоций
+                temperature=0.2
             )
             
             compressed = response.choices[0].message.content.strip()
@@ -597,6 +601,8 @@ async def analyze_memory_emotion(content: str, ai_client, config: Dict) -> Optio
     """Анализирует эмоциональный контекст воспоминания"""
     
     try:
+        from .multi_api_manager import APIUsageType
+        
         prompt = """Проанализируй эмоциональный контекст этого воспоминания AI-компаньона.
         
 Определи:
@@ -606,7 +612,8 @@ async def analyze_memory_emotion(content: str, ai_client, config: Dict) -> Optio
 Ответь в формате: emotion_type:intensity
 Например: joy:8 или sadness:3"""
 
-        response = await ai_client.chat.completions.create(
+        response = await api_manager.make_request(
+            APIUsageType.ANALYTICS,
             model=config.get('ai', {}).get('model', 'deepseek/deepseek-chat'),
             messages=[
                 {"role": "system", "content": prompt},

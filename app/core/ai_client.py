@@ -10,10 +10,19 @@ from typing import List, Tuple, Dict, Any
 class OptimizedAI:
     """AI клиент с поддержкой динамических персонажей"""
     
-    def __init__(self, ai_client, config: Dict[str, Any], character_loader=None):
-        self.ai_client = ai_client  
+    def __init__(self, api_manager_or_client, config: Dict[str, Any], character_loader=None):
+        # Определяем что передали - новый API manager или старый client
+        if hasattr(api_manager_or_client, 'make_request'):
+            # Новый API manager
+            self.api_manager = api_manager_or_client
+            self.ai_client = None  # Больше не используем напрямую
+        else:
+            # Старый client для совместимости
+            self.ai_client = api_manager_or_client
+            self.api_manager = None
+
         self.config = config
-        self.character_loader = character_loader  # НОВОЕ: загрузчик персонажей
+        self.character_loader = character_loader 
         self.prompt_cache = {}
         self.cached_responses = {}
         
@@ -270,20 +279,32 @@ class OptimizedAI:
             return self._add_character_variations(cached, character)
         
         try:
-            if self.ai_client is None:
-                logging.warning("AI клиент не инициализирован")
-                return self._get_character_fallback_response(context, user_message, question_type)
-            
-            response = await self.ai_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": modified_message}
-                ],
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                top_p=0.95
-            )
+            # Используем API manager для диалогов
+            if self.api_manager:
+                from .multi_api_manager import APIUsageType
+                response = await self.api_manager.make_request(
+                    APIUsageType.DIALOGUE,
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": modified_message}
+                    ],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    top_p=0.95
+                )
+            else:
+                # Fallback на старый способ
+                response = await self.ai_client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": modified_message}
+                    ],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    top_p=0.95
+                )
             
             raw_response = response.choices[0].message.content.strip()
             logging.info(f"Получен ответ от {character_name}: {len(raw_response)} символов")
@@ -510,36 +531,74 @@ class OptimizedAI:
         return grouped[:self.max_messages]
     
     async def get_simple_mood_calculation(self, psychological_core) -> Dict:
-        """Расчет настроения (без изменений)"""
+        """Расчет настроения с учетом дней недели"""
         current_hour = datetime.now().hour
-        is_weekend = datetime.now().weekday() >= 5
+        current_weekday = datetime.now().weekday()  # 0=понедельник, 6=воскресенье
+        is_weekend = current_weekday >= 5  # суббота/воскресенье
         
         base_mood = psychological_core.calculate_current_mood({
             "weekend": is_weekend,
             "weather": "normal"
         })
         
-        if 6 <= current_hour <= 9:
-            activity_context = "morning_routine"
-            energy_mod = 0.8
-        elif 9 <= current_hour <= 17:
-            activity_context = "work_time"
-            energy_mod = 0.9
-        elif 17 <= current_hour <= 22:
-            activity_context = "evening_time"
-            energy_mod = 0.7
-        else:
-            activity_context = "night_time"
-            energy_mod = 0.4
+        # НОВАЯ ЛОГИКА с учетом дней недели
+        if is_weekend:
+            # ВЫХОДНЫЕ - совсем другой ритм жизни
+            if current_hour < 10:
+                activity_context = "lazy_weekend_morning"  # валяемся в кровати
+                energy_mod = 0.6
+            elif 10 <= current_hour <= 12:
+                activity_context = "weekend_brunch"  # неспешный завтрак
+                energy_mod = 0.7
+            elif 12 <= current_hour <= 17:
+                activity_context = "weekend_leisure"  # отдых, хобби, прогулки
+                energy_mod = 0.8
+            elif 17 <= current_hour <= 22:
+                activity_context = "weekend_evening"  # встречи с друзьями, развлечения
+                energy_mod = 0.9
+            else:
+                activity_context = "weekend_night"
+                energy_mod = 0.4
         
-        return {
-            "current_mood": self._mood_to_description(base_mood),
-            "energy_level": int(psychological_core.physical_state["energy_base"] * energy_mod),
-            "activity_context": activity_context,
-            "dominant_emotion": psychological_core.emotional_momentum["current_emotion"],
-            "initiative_desire": min(10, int(base_mood * 0.8 + random.uniform(-2, 2))),
-            "personality_description": psychological_core.get_personality_description()
-        }
+        else:
+            # РАБОЧИЕ ДНИ - обычный ритм
+            if 6 <= current_hour <= 9:
+                activity_context = "morning_routine"
+                energy_mod = 0.8
+            elif 9 <= current_hour <= 17:
+                activity_context = "work_time"
+                energy_mod = 0.9
+            elif 17 <= current_hour <= 22:
+                activity_context = "evening_time"
+                energy_mod = 0.7
+            else:
+                activity_context = "night_time"
+                energy_mod = 0.4
+        
+        # Особые случаи для персонажей
+        character = self._get_current_character_context()
+        if character:
+            # Студенты могут иметь другое расписание
+            if any("студент" in trait.lower() for trait in character.get('personality', {}).get('key_traits', [])):
+                if is_weekend and 10 <= current_hour <= 14:
+                    activity_context = "weekend_study"  # иногда учатся в выходные
+            
+            # Марин может косплеить в выходные
+            if "марин" in character.get('name', '').lower():
+                if is_weekend and 14 <= current_hour <= 19:
+                    if random.random() < 0.3:  # 30% шанс
+                        activity_context = "weekend_cosplay"
+    
+    return {
+        "current_mood": self._mood_to_description(base_mood),
+        "energy_level": int(psychological_core.physical_state["energy_base"] * energy_mod),
+        "activity_context": activity_context,
+        "dominant_emotion": psychological_core.emotional_momentum["current_emotion"],
+        "initiative_desire": min(10, int(base_mood * 0.8 + random.uniform(-2, 2))),
+        "personality_description": psychological_core.get_personality_description(),
+        "is_weekend": is_weekend,
+        "weekday_name": ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"][current_weekday]
+    }
     
     def _mood_to_description(self, mood_value: float) -> str:
         """Конвертация настроения (без изменений)"""

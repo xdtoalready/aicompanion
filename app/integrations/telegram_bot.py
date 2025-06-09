@@ -55,8 +55,19 @@ class TelegramCompanion(RealisticAICompanion):
         self.app.add_handler(CommandHandler("analyze_emotions", self.analyze_emotions_command))
         self.app.add_handler(CommandHandler("emotional_search", self.emotional_search_command))
         
+        # Команды планирования
+        if self.commands_enabled:
+            self.app.add_handler(CommandHandler("plans", self.show_plans_command))
+            self.app.add_handler(CommandHandler("test_planning", self.test_planning_command))
+            self.app.add_handler(CommandHandler("planning_stats", self.planning_stats_command))
+
         # Проверка состояния расписания
         self.app.add_handler(CommandHandler("schedule", self.schedule_command))
+
+        # Мониторинг API ключей
+        if self.commands_enabled:
+            self.app.add_handler(CommandHandler("api", self.api_stats_command))
+            self.app.add_handler(CommandHandler("apitest", self.api_test_command))
 
         # Команды для отладки (будут убраны позже)
         if self.commands_enabled:
@@ -72,6 +83,311 @@ class TelegramCompanion(RealisticAICompanion):
         
         # Обработка ошибок
         self.app.add_error_handler(self.error_handler)
+
+    async def api_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Статистика использования API ключей"""
+        if not self.commands_enabled:
+            return
+        
+        if not hasattr(self, 'api_manager'):
+            await update.message.reply_text("❌ API Manager не инициализирован")
+            return
+        
+        stats = self.api_manager.get_usage_stats()
+        
+        text = f"📊 **СТАТИСТИКА API КЛЮЧЕЙ**\n\n"
+        text += f"🔢 **Общая статистика:**\n"
+        text += f"• Всего запросов: {stats['total_requests']}\n"
+        text += f"• Всего токенов: {stats['total_tokens']:,}\n"
+        text += f"• Ошибок: {stats['total_errors']}\n\n"
+        
+        for usage_type, type_stats in stats['by_type'].items():
+            emoji = {"dialogue": "💬", "planning": "📅", "analytics": "📊"}.get(usage_type, "🔧")
+            
+            text += f"{emoji} **{usage_type.upper()}:**\n"
+            text += f"• Ключей в пуле: {type_stats['keys_available']}\n"
+            text += f"• Запросов: {type_stats['requests']}\n"
+            text += f"• Токенов: {type_stats['tokens']:,}\n"
+            if type_stats['errors'] > 0:
+                text += f"• ❌ Ошибок: {type_stats['errors']}\n"
+            text += "\n"
+        
+        # Рекомендации
+        if stats['total_errors'] > 5:
+            text += "⚠️ **Много ошибок!** Проверьте ключи.\n"
+        
+        if stats['total_requests'] > 500:
+            text += "📈 **Высокая активность** - рассмотрите добавление ключей.\n"
+        
+        await update.message.reply_text(text, parse_mode='Markdown')
+
+    async def show_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показывает текущие планы"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            plans = await self._get_today_ai_plans()
+            
+            if not plans:
+                await update.message.reply_text(
+                    "📅 **НА СЕГОДНЯ НЕТ ИИ-ПЛАНОВ**\n\n"
+                    "💡 Планы генерируются автоматически в 6:00 утра\n"
+                    "🧪 Или используйте: `/test_planning`\n"
+                    "📋 Текущее расписание: `/schedule`",
+                    parse_mode='Markdown'
+                )
+                return
+            
+            from datetime import datetime
+            current_time = datetime.now().time()
+            
+            text = f"📅 **МОИ ИИ-ПЛАНЫ НА СЕГОДНЯ** ({len(plans)} активностей)\n\n"
+            
+            for i, plan in enumerate(plans, 1):
+                time_str = plan['start_time'].split(' ')[1][:5]
+                try:
+                    plan_time = datetime.strptime(time_str, '%H:%M').time()
+                    
+                    # Отмечаем текущие/прошедшие планы
+                    if plan_time <= current_time:
+                        status = "✅" if plan_time < current_time else "🔄"
+                    else:
+                        status = "⏳"
+                except:
+                    status = "📋"
+                
+                importance = "🔥" if plan['importance'] >= 8 else "📋" if plan['importance'] >= 6 else "💭"
+                
+                text += f"{status} **{time_str}** {importance} {plan['description']}\n"
+                
+                if plan['importance'] >= 8:
+                    text += f"   ⚠️ Важно! (приоритет {plan['importance']}/10)\n"
+                elif plan['flexibility'] <= 3:
+                    text += f"   🔒 Сложно перенести (гибкость {plan['flexibility']}/10)\n"
+                
+                text += "\n"
+            
+            text += "🤖 Планы генерируются ИИ автоматически каждое утро"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка показа планов: {e}")
+
+    async def test_planning_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Тестирует систему ИИ-планирования"""
+        if not self.commands_enabled:
+            return
+        
+        await update.message.reply_text("🧪 Запускаю тестовое планирование дня...")
+        
+        try:
+            # Принудительно генерируем план
+            success = await self.daily_planner.generate_daily_plan()
+            
+            if success:
+                await update.message.reply_text("✅ План успешно сгенерирован! Смотрите: /plans")
+                
+                # Показываем краткую сводку
+                plans = await self._get_today_ai_plans()
+                
+                if plans:
+                    summary = f"📊 **Сгенерировано активностей: {len(plans)}**\n\n"
+                    
+                    # Показываем только первые 3
+                    for plan in plans[:3]:
+                        time_str = plan['start_time'].split(' ')[1][:5]
+                        summary += f"• {time_str} - {plan['description'][:40]}...\n"
+                    
+                    if len(plans) > 3:
+                        summary += f"\n... и ещё {len(plans) - 3} активностей"
+                    
+                    await update.message.reply_text(summary, parse_mode='Markdown')
+            else:
+                await update.message.reply_text(
+                    "❌ Не удалось сгенерировать план\n\n"
+                    "Возможные причины:\n"
+                    "• Уже есть планы на сегодня\n"  
+                    "• Ошибка API ключа планирования\n"
+                    "• Проблема с промптом ИИ"
+                )
+                
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка тестирования планирования: {e}")
+
+    async def planning_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Статистика системы планирования"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            import sqlite3
+            from datetime import date, timedelta
+            
+            db_path = self.enhanced_memory.db_manager.db_path
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Общая статистика планирования
+                cursor.execute("SELECT COUNT(*) FROM planning_sessions")
+                total_sessions = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM virtual_activities WHERE generated_by_ai = 1")
+                total_ai_activities = cursor.fetchone()[0]
+                
+                # Статистика за последнюю неделю
+                week_ago = (date.today() - timedelta(days=7)).isoformat()
+                cursor.execute("""
+                    SELECT COUNT(*) FROM planning_sessions 
+                    WHERE planning_date >= ?
+                """, (week_ago,))
+                weekly_sessions = cursor.fetchone()[0]
+                
+                # Успешность планирования
+                cursor.execute("""
+                    SELECT COUNT(*) FROM planning_sessions 
+                    WHERE success = 1 AND planning_date >= ?
+                """, (week_ago,))
+                successful_sessions = cursor.fetchone()[0]
+                
+                # Средняя активность в день
+                cursor.execute("""
+                    SELECT AVG(total_activities_planned) FROM planning_sessions
+                    WHERE planning_date >= ?
+                """, (week_ago,))
+                avg_activities = cursor.fetchone()[0] or 0
+                
+                # Планы на сегодня
+                today = date.today().isoformat()
+                cursor.execute("""
+                    SELECT COUNT(*) FROM virtual_activities
+                    WHERE planning_date = ? AND generated_by_ai = 1
+                """, (today,))
+                today_plans = cursor.fetchone()[0]
+                
+                text = f"📊 **СТАТИСТИКА ИИ-ПЛАНИРОВАНИЯ**\n\n"
+                
+                text += f"🤖 **Общая статистика:**\n"
+                text += f"• Всего сессий планирования: {total_sessions}\n"
+                text += f"• ИИ-активностей создано: {total_ai_activities}\n\n"
+                
+                text += f"📅 **За последнюю неделю:**\n"
+                text += f"• Дней с планированием: {weekly_sessions}/7\n"
+                text += f"• Успешных сессий: {successful_sessions}/{weekly_sessions}\n"
+                text += f"• Среднее активностей в день: {avg_activities:.1f}\n\n"
+                
+                text += f"🎯 **Сегодня:**\n"
+                text += f"• ИИ-планов: {today_plans}\n"
+                
+                if weekly_sessions == 0:
+                    text += "\n⚠️ **Планирование не работает!**\n"
+                    text += "Проверьте:\n"
+                    text += "• API ключи планирования\n"
+                    text += "• Задачу в планировщике (6:00 утра)\n"
+                    text += "• Логи системы"
+                elif successful_sessions < weekly_sessions:
+                    text += f"\n⚠️ **{weekly_sessions - successful_sessions} неудачных сессий**\n"
+                    text += "Проверьте логи на ошибки"
+                else:
+                    text += f"\n✅ **Планирование работает отлично!**"
+                
+                # Последняя сессия планирования
+                cursor.execute("""
+                    SELECT planning_date, character_mood, total_activities_planned
+                    FROM planning_sessions
+                    ORDER BY planning_time DESC
+                    LIMIT 1
+                """)
+                
+                last_session = cursor.fetchone()
+                if last_session:
+                    text += f"\n\n🕐 **Последняя сессия:**\n"
+                    text += f"• Дата: {last_session[0]}\n"
+                    text += f"• Настроение: {last_session[1]}\n"
+                    text += f"• Запланировано: {last_session[2]} активностей"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка получения статистики: {e}")
+
+    # Вспомогательный метод:
+    async def _get_today_ai_plans(self) -> List[Dict]:
+        """Получает планы ИИ на сегодня"""
+        try:
+            import sqlite3
+            from datetime import date
+            
+            today = date.today().isoformat()
+            
+            with sqlite3.connect(self.enhanced_memory.db_manager.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT activity_type, description, start_time, importance, flexibility
+                    FROM virtual_activities
+                    WHERE planning_date = ? AND generated_by_ai = 1
+                    ORDER BY start_time ASC
+                """, (today,))
+                
+                plans = []
+                for row in cursor.fetchall():
+                    plans.append({
+                        'type': row[0],
+                        'description': row[1], 
+                        'start_time': row[2],
+                        'importance': row[3],
+                        'flexibility': row[4]
+                    })
+                
+                return plans
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка получения планов: {e}")
+            return []
+
+    async def api_test_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Тестирует все пулы API ключей"""
+        if not self.commands_enabled:
+            return
+        
+        if not hasattr(self, 'api_manager'):
+            await update.message.reply_text("❌ API Manager не инициализирован")
+            return
+        
+        await update.message.reply_text("🧪 Тестирую все пулы API ключей...")
+        
+        from app.core.multi_api_manager import APIUsageType
+        
+        results = []
+        
+        # Тестируем каждый пул
+        for usage_type in [APIUsageType.DIALOGUE, APIUsageType.PLANNING, APIUsageType.ANALYTICS]:
+            try:
+                # Простой тестовый запрос
+                response = await self.api_manager.make_request(
+                    usage_type,
+                    model="deepseek/deepseek-chat",
+                    messages=[
+                        {"role": "user", "content": "Ответь одним словом: Тест"}
+                    ],
+                    max_tokens=10,
+                    temperature=0.1
+                )
+                
+                if response and response.choices:
+                    results.append(f"✅ {usage_type.value}: OK")
+                else:
+                    results.append(f"❌ {usage_type.value}: Пустой ответ")
+                    
+            except Exception as e:
+                results.append(f"❌ {usage_type.value}: {str(e)[:50]}...")
+        
+        result_text = "🧪 **Результаты тестирования API:**\n\n" + "\n".join(results)
+        
+        await update.message.reply_text(result_text, parse_mode='Markdown')
 
     async def memory_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Статистика системы памяти"""

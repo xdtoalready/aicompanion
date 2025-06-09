@@ -1,9 +1,37 @@
 {
     "ai": {
-        "openrouter_api_key": "YOUR_OPENROUTER_API_KEY_HERE",
+        "openrouter_api_key": "YOUR_MAIN_API_KEY",
+        
+        "dialogue_api_keys": [
+            "sk-or-v1-DIALOGUE_KEY_1"
+        ],
+        
+        "planning_api_keys": [
+            "sk-or-v1-PLANNING_KEY_1"
+        ],
+        
+        "analytics_api_keys": [
+            "sk-or-v1-ANALYTICS_KEY_1"
+        ],
+        
         "model": "deepseek/deepseek-chat",
         "max_tokens": 350,
-        "temperature": 0.85
+        "temperature": 0.85,
+        
+        "limits": {
+            "dialogue": {
+                "max_requests_per_hour": 100,
+                "max_tokens_per_day": 50000
+            },
+            "planning": {
+                "max_requests_per_hour": 20,
+                "max_tokens_per_day": 10000
+            },
+            "analytics": {
+                "max_requests_per_hour": 10,
+                "max_tokens_per_day": 5000
+            }
+        }
     },
     "character_profile_path": "characters/marin_kitagawa.json",
     "character_profile": {

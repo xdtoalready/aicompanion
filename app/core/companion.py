@@ -14,11 +14,15 @@ from apscheduler.triggers.interval import IntervalTrigger
 from .character_loader import get_character_loader
 from .virtual_life import VirtualLifeManager, VirtualActivity
 
+# Импорт систем планирования
+from .daily_planning_system import DailyPlanningSystem
+
 # Относительные импорты для модулей внутри core
 from .psychology import PsychologicalCore
 from .memory import AdvancedMemorySystem
 from .ai_client import OptimizedAI
 from .typing_simulator import TypingSimulator, TypingIndicator
+from .multi_api_manager import create_api_manager, APIUsageType
 
 # Импорт консолидации памяти
 from .memory_consolidation import (
@@ -76,13 +80,20 @@ class RealisticAICompanion:
                     )
 
         # AI клиент
-        self.ai_client = AsyncOpenAI(
-            api_key=config["ai"]["openrouter_api_key"],
-            base_url="https://openrouter.ai/api/v1",
+        from .multi_api_manager import create_api_manager, APIUsageType
+        self.api_manager = create_api_manager(config)
+
+        self.daily_planner = DailyPlanningSystem(
+            db_path=db_path,
+            api_manager=self.api_manager,
+            character_loader=self.character_loader,
+            config=config
         )
 
+        self.ai_client = self.api_manager.get_client(APIUsageType.DIALOGUE)
+
         # Передаём character_loader в AI клиент
-        self.optimized_ai = OptimizedAI(self.ai_client, config, self.character_loader)
+        self.optimized_ai = OptimizedAI(self.api_manager, config, self.character_loader)
 
         # Система печатания
         typing_config = config.get("typing", {})
@@ -114,7 +125,7 @@ class RealisticAICompanion:
         self.commands_enabled = True
 
         self.emotional_memory_consolidator = EmotionalMemoryConsolidator(
-            db_path=db_path, ai_client=self.ai_client, config=config
+            db_path=db_path, api_manager=self.api_manager, config=config
         )
 
         self.setup_realistic_scheduler()
@@ -147,6 +158,15 @@ class RealisticAICompanion:
             self.consciousness_cycle, IntervalTrigger(minutes=5), id="consciousness"
         )
 
+        # НОВОЕ: Утреннее планирование в 6:00
+        self.scheduler.add_job(
+            self.morning_planning_cycle,
+            'cron', 
+            hour=6, 
+            minute=0,
+            id="morning_planning"
+        )
+
         # Остальные задачи...
         self.scheduler.add_job(
             self.run_emotional_memory_consolidation,
@@ -173,6 +193,214 @@ class RealisticAICompanion:
         )
 
         self.scheduler.start()
+
+    async def morning_planning_cycle(self):
+        """Утренний цикл планирования в 6:00"""
+        try:
+            self.logger.info("🌅 Утренний цикл планирования запущен")
+            
+            # Генерируем план дня
+            success = await self.daily_planner.generate_daily_plan()
+            
+            if success:
+                self.logger.info("✅ План дня сгенерирован успешно")
+                
+                # Обновляем психологическое состояние - планирование поднимает настроение
+                self.psychological_core.update_emotional_state("accomplishment", 1.0)
+                
+                # Можем отправить уведомление пользователю о планах (опционально)
+                if hasattr(self, 'allowed_users') and self.config.get('behavior', {}).get('notify_about_plans', False):
+                    await self._notify_users_about_daily_plan()
+            else:
+                self.logger.warning("⚠️ Не удалось сгенерировать план дня")
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка утреннего планирования: {e}")
+
+    async def _notify_users_about_daily_plan(self):
+        """Уведомляет пользователей о планах на день"""
+        try:
+            # Получаем сегодняшние планы
+            today_plans = await self._get_today_ai_plans()
+            
+            if not today_plans:
+                return
+            
+            # Формируем сообщение о планах
+            plan_messages = await self._generate_plan_announcement(today_plans)
+            
+            # Отправляем пользователям
+            current_state = await self.optimized_ai.get_simple_mood_calculation(
+                self.psychological_core
+            )
+            
+            for user_id in self.allowed_users:
+                try:
+                    await self.send_telegram_messages_with_timing(
+                        chat_id=user_id,
+                        messages=plan_messages,
+                        current_state=current_state
+                    )
+                except Exception as e:
+                    self.logger.error(f"Ошибка отправки планов пользователю {user_id}: {e}")
+                    
+        except Exception as e:
+            self.logger.error(f"Ошибка уведомления о планах: {e}")
+
+    async def _get_today_ai_plans(self) -> List[Dict]:
+        """Получает планы ИИ на сегодня"""
+        try:
+            import sqlite3
+            from datetime import date
+            
+            today = date.today().isoformat()
+            
+            with sqlite3.connect(self.enhanced_memory.db_manager.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT activity_type, description, start_time, importance, flexibility
+                    FROM virtual_activities
+                    WHERE planning_date = ? AND generated_by_ai = 1
+                    ORDER BY start_time ASC
+                """, (today,))
+                
+                plans = []
+                for row in cursor.fetchall():
+                    plans.append({
+                        'type': row[0],
+                        'description': row[1], 
+                        'start_time': row[2],
+                        'importance': row[3],
+                        'flexibility': row[4]
+                    })
+                
+                return plans
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка получения планов: {e}")
+            return []
+        
+    async def _generate_plan_announcement(self, plans: List[Dict]) -> List[str]:
+        """Генерирует сообщения о планах"""
+        
+        if not plans:
+            return ["Сегодня у меня свободный день! 😊"]
+        
+        character = self.character_loader.get_current_character()
+        character_name = character.get('name', 'AI') if character else 'AI'
+        
+        messages = [
+            f"Доброе утро! ☀️ Я уже спланировала день!"
+        ]
+        
+        # Добавляем основные планы
+        important_plans = [p for p in plans if p['importance'] >= 7]
+        casual_plans = [p for p in plans if p['importance'] < 7]
+        
+        if important_plans:
+            important_desc = []
+            for plan in important_plans[:2]:  # Максимум 2 важных
+                time_str = plan['start_time'].split(' ')[1][:5]  # HH:MM
+                important_desc.append(f"{time_str} - {plan['description']}")
+            
+            messages.append(f"Главные дела:\n" + "\n".join(important_desc))
+        
+        if casual_plans:
+            messages.append(f"А ещё планирую {casual_plans[0]['description'].lower()} и ещё кое-что! ✨")
+        
+        # Персонаж-специфичный комментарий
+        if character and 'марин' in character_name.lower():
+            messages.append("Может присоединишься к каким-то планам? Было бы весело! 💕")
+        else:
+            messages.append("Расскажи как дела у тебя! Может что-то планируешь? 😊")
+        
+        return messages
+    
+    async def test_planning_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Тестирует систему ИИ-планирования"""
+        if not self.commands_enabled:
+            return
+        
+        await update.message.reply_text("🧪 Тестирую систему планирования...")
+        
+        try:
+            # Принудительно генерируем план
+            success = await self.daily_planner.generate_daily_plan()
+            
+            if success:
+                # Показываем сгенерированные планы
+                plans = await self._get_today_ai_plans()
+                
+                if plans:
+                    text = "✅ **План успешно сгенерирован!**\n\n"
+                    text += f"📅 **Планов на сегодня: {len(plans)}**\n\n"
+                    
+                    for i, plan in enumerate(plans, 1):
+                        time_str = plan['start_time'].split(' ')[1][:5]
+                        importance_stars = "⭐" * min(plan['importance'], 5)
+                        flexibility_info = f"(гибкость: {plan['flexibility']}/10)"
+                        
+                        text += f"{i}. **{time_str}** - {plan['description']}\n"
+                        text += f"   {importance_stars} {flexibility_info}\n\n"
+                    
+                    await update.message.reply_text(text, parse_mode='Markdown')
+                else:
+                    await update.message.reply_text("✅ Планирование успешно, но планы не найдены")
+            else:
+                await update.message.reply_text("❌ Ошибка генерации плана")
+                
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка тестирования: {e}")
+
+    async def show_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Показывает текущие планы"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            plans = await self._get_today_ai_plans()
+            
+            if not plans:
+                await update.message.reply_text(
+                    "📅 На сегодня нет ИИ-планов\n\n"
+                    "💡 Планы генерируются автоматически в 6:00 утра\n"
+                    "🧪 Или используйте: /test_planning"
+                )
+                return
+            
+            from datetime import datetime
+            current_time = datetime.now().time()
+            
+            text = f"📅 **МОИ ПЛАНЫ НА СЕГОДНЯ** ({len(plans)} активностей)\n\n"
+            
+            for i, plan in enumerate(plans, 1):
+                time_str = plan['start_time'].split(' ')[1][:5]
+                plan_time = datetime.strptime(time_str, '%H:%M').time()
+                
+                # Отмечаем текущие/прошедшие планы
+                if plan_time <= current_time:
+                    status = "✅" if plan_time < current_time else "🔄"
+                else:
+                    status = "⏳"
+                
+                importance = "🔥" if plan['importance'] >= 8 else "📋" if plan['importance'] >= 6 else "💭"
+                
+                text += f"{status} **{time_str}** {importance} {plan['description']}\n"
+                
+                if plan['importance'] >= 8:
+                    text += f"   ⚠️ Важно! (приоритет {plan['importance']}/10)\n"
+                elif plan['flexibility'] <= 3:
+                    text += f"   🔒 Сложно перенести (гибкость {plan['flexibility']}/10)\n"
+                
+                text += "\n"
+            
+            text += "💡 Планы генерируются ИИ автоматически каждое утро"
+            
+            await update.message.reply_text(text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка показа планов: {e}")
 
     async def run_memory_consolidation(self):
         """Запуск автоматической консолидации памяти"""
@@ -427,51 +655,103 @@ class RealisticAICompanion:
             self.logger.error(f"Ошибка в цикле сознания: {e}")
 
     async def _should_initiate_realistically(self, current_state: Dict) -> bool:
-        """Улучшенное решение об инициативе с учетом времени"""
+        """Улучшенное решение об инициативе с подробным логированием"""
 
         initiative_desire = current_state.get("initiative_desire", 0)
-
-        # Базовые условия (более мягкие для частых проверок)
-        if initiative_desire < 3:  # Было 4, теперь 3
-            return False
-
-        # Проверяем время последнего сообщения
-        min_hours = self.config.get("behavior", {}).get(
-            "min_hours_between_initiatives", 2
-        )
-        if self.last_message_time:
-            hours_since = (
-                datetime.now() - self.last_message_time
-            ).total_seconds() / 3600
-            if hours_since < min_hours:
-                return False
-
-        # Учитываем контекст времени
         current_hour = datetime.now().hour
+        is_weekend = datetime.now().weekday() >= 5  # 5=суббота, 6=воскресенье
         activity_context = current_state.get("activity_context")
 
-        # НОВОЕ: Более активное поведение в определенные часы
-        peak_hours = [9, 12, 16, 19, 22]  # Часы пик активности
-        if current_hour in peak_hours:
-            initiative_desire += 1
+        self.logger.debug(f"🤔 Проверка инициативы: desire={initiative_desire}, hour={current_hour}, weekend={is_weekend}")
 
-        # Рабочее время - реже пишет, но не полностью блокирует
-        if activity_context == "work_time":
-            if random.random() < 0.8:  # Было 0.7, стало 0.8 (меньше блокировки)
+        # 1. Ночное время - спим
+        if current_hour >= 23 or current_hour < 7:
+            self.logger.debug("😴 Ночное время - не пишем")
+            return False
+
+        # 2. Базовый порог желания (понижен!)
+        if initiative_desire < 2:  # Было 3, стало 2
+            self.logger.debug(f"😐 Слабое желание писать: {initiative_desire} < 2")
+            return False
+
+        # 3. Проверяем время последнего сообщения (ослаблено!)
+        min_hours = self.config.get("behavior", {}).get("min_hours_between_initiatives", 2)
+
+        # В выходные и вечером - можем писать чаще
+        if is_weekend or current_hour >= 18:
+            min_hours = min_hours * 0.7  # Уменьшаем интервал на 30%
+
+        if self.last_message_time:
+            hours_since = (datetime.now() - self.last_message_time).total_seconds() / 3600
+            if hours_since < min_hours:
+                self.logger.debug(f"⏰ Слишком рано: прошло {hours_since:.1f}ч < {min_hours:.1f}ч")
                 return False
 
-        # Вечер - больше желания общаться
+        # 4. Бонусы к желанию
+        bonus_reasons = []
+
+        # Часы пик активности
+        peak_hours = [9, 12, 16, 19, 22]
+        if current_hour in peak_hours:
+            initiative_desire += 1
+            bonus_reasons.append(f"час пик ({current_hour})")
+
+        # Выходные - более активное общение
+        if is_weekend:
+            initiative_desire += 1.5
+            bonus_reasons.append("выходные")
+
+        # Вечернее время - больше желания общаться  
         if activity_context == "evening_time":
-            initiative_desire += 2
+            initiative_desire += 1
+            bonus_reasons.append("вечер")
 
-        # НОВОЕ: Учитываем персонажа (Марин более активная)
-        character = character_loader.get_current_character()
-        if character and "марин" in character.get("name", "").lower():
-            initiative_desire += 1  # Марин чаще пишет
+        # Учитываем персонажа (исправлен баг!)
+        character = self.character_loader.get_current_character()  # Исправлено: добавлен self.
+        if character:
+            name = character.get("name", "").lower()
+            if "марин" in name or "китагава" in name:
+                initiative_desire += 1
+                bonus_reasons.append("активный персонаж")
+            
+            # Экстравертные персонажи пишут чаще
+            extraversion = character.get("personality", {}).get("key_traits", [])
+            if any("экстравертн" in trait.lower() for trait in extraversion):
+                initiative_desire += 0.5
+                bonus_reasons.append("экстраверт")
 
-        # Финальная проверка с рандомом (более мягкая для частых проверок)
-        threshold = 5 - (initiative_desire * 0.4)  # Немного понизили порог
-        return random.random() > (threshold / 10)
+        if bonus_reasons:
+            self.logger.debug(f"✨ Бонусы: {', '.join(bonus_reasons)} -> desire={initiative_desire}")
+
+        # 5. Рабочее время (ослаблено!)
+        work_penalty = 0
+        if activity_context == "work_time" and not is_weekend:
+            # Теперь только 50% блокировка вместо 80%
+            if random.random() < 0.5:  # Было 0.8, стало 0.5
+                self.logger.debug("💼 Рабочее время - блокируем (50% шанс)")
+                return False
+            work_penalty = 0.5
+            self.logger.debug("💼 Рабочее время, но прошли проверку")
+
+        # 6. Финальная проверка (исправлена формула!)
+        adjusted_desire = initiative_desire - work_penalty
+
+        # Новая формула: чем больше желание, тем больше шанс
+        chance = min(0.8, adjusted_desire / 10)  # Максимум 80% шанс
+        random_roll = random.random()
+
+        should_send = random_roll < chance
+
+        self.logger.debug(
+            f"🎲 Финальная проверка: desire={adjusted_desire:.1f} -> chance={chance:.2f} "
+            f"vs roll={random_roll:.2f} -> {'✅ ОТПРАВЛЯЕМ' if should_send else '❌ не отправляем'}"
+        )
+
+        # 7. Дополнительная статистика для отладки
+        if should_send:
+            self.logger.info(f"🚀 Решение отправить инициативу! Желание: {adjusted_desire:.1f}, бонусы: {bonus_reasons}")
+
+        return should_send
 
     async def update_virtual_life(self):
         """Обновляет виртуальную жизнь персонажа"""
@@ -1008,3 +1288,41 @@ class RealisticAICompanion:
         """Остановка компаньона"""
         self.scheduler.shutdown()
         self.logger.info("AI-компаньон остановлен")
+
+
+    async def api_stats_command(self, update: Any, context: Any):
+        """Статистика использования API ключей"""
+        if not self.commands_enabled:
+            return
+        
+        stats = self.api_manager.get_usage_stats()
+        
+        text = f"📊 **СТАТИСТИКА API КЛЮЧЕЙ**\n\n"
+        text += f"🔢 **Общая статистика:**\n"
+        text += f"• Всего запросов: {stats['total_requests']}\n"
+        text += f"• Всего токенов: {stats['total_tokens']:,}\n"
+        text += f"• Ошибок: {stats['total_errors']}\n\n"
+        
+        for usage_type, type_stats in stats['by_type'].items():
+            emoji = {"dialogue": "💬", "planning": "📅", "analytics": "📊"}.get(usage_type, "🔧")
+            
+            text += f"{emoji} **{usage_type.upper()}:**\n"
+            text += f"• Ключей в пуле: {type_stats['keys_available']}\n"
+            text += f"• Запросов: {type_stats['requests']}\n"
+            text += f"• Токенов: {type_stats['tokens']:,}\n"
+            text += f"• Ошибок: {type_stats['errors']}\n\n"
+        
+        # Добавляем предупреждения о лимитах
+        limits = self.config.get("ai", {}).get("limits", {})
+        if limits:
+            text += "⚠️ **Лимиты (если настроены):**\n"
+            for usage_type, type_stats in stats['by_type'].items():
+                if usage_type in limits:
+                    limit_info = limits[usage_type]
+                    tokens_limit = limit_info.get("max_tokens_per_day", 0)
+                    if tokens_limit > 0:
+                        usage_pct = (type_stats['tokens'] / tokens_limit) * 100
+                        text += f"• {usage_type}: {usage_pct:.1f}% дневного лимита\n"
+        
+        await update.message.reply_text(text, parse_mode='Markdown')
+
