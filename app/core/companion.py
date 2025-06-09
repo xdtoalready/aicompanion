@@ -32,7 +32,7 @@ from .memory_consolidation import (
 )
 
 # Импорт системы работы с базой данных
-from ..database.memory_manager import EnhancedMemorySystem
+from ..database.memory_manager_optimized import OptimizedMemoryManager
 
 
 class RealisticAICompanion:
@@ -52,7 +52,7 @@ class RealisticAICompanion:
 
         # База данных для памяти
         db_path = config.get("database", {}).get("path", "data/companion.db")
-        self.enhanced_memory = EnhancedMemorySystem(db_path)
+        self.enhanced_memory = OptimizedMemoryManager(db_path)
 
         # Оставляем старую систему для совместимости
         self.memory_system = AdvancedMemorySystem()
@@ -640,7 +640,7 @@ class RealisticAICompanion:
             self.logger.error(f"💥 [CONSCIOUSNESS] Ошибка в цикле сознания: {e}", exc_info=True)
 
     async def _should_initiate_realistically(self, current_state: Dict) -> bool:
-        """ИСПРАВЛЕННОЕ решение об инициативе с подробным логированием"""
+        """решение об инициативе с подробным логированием"""
 
         initiative_desire = current_state.get("initiative_desire", 0)
         current_hour = datetime.now().hour
@@ -666,11 +666,6 @@ class RealisticAICompanion:
 
         # 3. Проверяем время последнего сообщения (СИЛЬНО ослабляем!)
         min_hours = self.config.get("behavior", {}).get("min_hours_between_initiatives", 2)
-        
-        # НОВОЕ: В тестовом режиме уменьшаем до 30 минут!
-        if self.commands_enabled:  # Если команды включены = тестовый режим
-            min_hours = 0.5  # 30 минут вместо 2 часов!
-            self.logger.info("🧪 ТЕСТОВЫЙ РЕЖИМ: минимальный интервал = 30 минут")
 
         if self.last_message_time:
             hours_since = (datetime.now() - self.last_message_time).total_seconds() / 3600
