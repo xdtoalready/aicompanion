@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 class AIActivityHumanizer:
