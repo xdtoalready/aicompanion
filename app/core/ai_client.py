@@ -589,16 +589,16 @@ class OptimizedAI:
                     if random.random() < 0.3:  # 30% шанс
                         activity_context = "weekend_cosplay"
     
-    return {
-        "current_mood": self._mood_to_description(base_mood),
-        "energy_level": int(psychological_core.physical_state["energy_base"] * energy_mod),
-        "activity_context": activity_context,
-        "dominant_emotion": psychological_core.emotional_momentum["current_emotion"],
-        "initiative_desire": min(10, int(base_mood * 0.8 + random.uniform(-2, 2))),
-        "personality_description": psychological_core.get_personality_description(),
-        "is_weekend": is_weekend,
-        "weekday_name": ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"][current_weekday]
-    }
+        return {
+            "current_mood": self._mood_to_description(base_mood),
+            "energy_level": int(psychological_core.physical_state["energy_base"] * energy_mod),
+            "activity_context": activity_context,
+            "dominant_emotion": psychological_core.emotional_momentum["current_emotion"],
+            "initiative_desire": min(10, int(base_mood * 0.8 + random.uniform(-2, 2))),
+            "personality_description": psychological_core.get_personality_description(),
+            "is_weekend": is_weekend,
+            "weekday_name": ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"][current_weekday]
+        }
     
     def _mood_to_description(self, mood_value: float) -> str:
         """Конвертация настроения (без изменений)"""
