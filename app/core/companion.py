@@ -634,101 +634,105 @@ class RealisticAICompanion:
             self.logger.error(f"Ошибка в цикле сознания: {e}")
 
     async def _should_initiate_realistically(self, current_state: Dict) -> bool:
-        """Улучшенное решение об инициативе с подробным логированием"""
+        """ИСПРАВЛЕННОЕ решение об инициативе с подробным логированием"""
 
         initiative_desire = current_state.get("initiative_desire", 0)
         current_hour = datetime.now().hour
-        is_weekend = datetime.now().weekday() >= 5  # 5=суббота, 6=воскресенье
+        is_weekend = datetime.now().weekday() >= 5
         activity_context = current_state.get("activity_context")
 
-        self.logger.debug(f"🤔 Проверка инициативы: desire={initiative_desire}, hour={current_hour}, weekend={is_weekend}")
+        self.logger.info(f"🤔 ПРОВЕРКА ИНИЦИАТИВЫ:")
+        self.logger.info(f"   Желание: {initiative_desire}/10")
+        self.logger.info(f"   Час: {current_hour}")
+        self.logger.info(f"   Выходные: {is_weekend}")
+        self.logger.info(f"   Активность: {activity_context}")
+        self.logger.info(f"   Сообщений сегодня: {self.daily_message_count}")
 
-        # 1. Ночное время - спим
-        if current_hour >= 23 or current_hour < 7:
-            self.logger.debug("😴 Ночное время - не пишем")
+        # 1. Ночное время - спим (но ослабляем)
+        if current_hour >= 24 or current_hour < 6:  # Было 23-7, стало 0-6
+            self.logger.info("😴 Слишком поздно/рано - не пишем")
             return False
 
-        # 2. Базовый порог желания (понижен!)
-        if initiative_desire < 2:  # Было 3, стало 2
-            self.logger.debug(f"😐 Слабое желание писать: {initiative_desire} < 2")
+        # 2. СИЛЬНО ОСЛАБЛЯЕМ базовый порог! 
+        if initiative_desire < 1:  # Было 2, стало 1!
+            self.logger.info(f"😐 Очень слабое желание: {initiative_desire} < 1")
             return False
 
-        # 3. Проверяем время последнего сообщения (ослаблено!)
+        # 3. Проверяем время последнего сообщения (СИЛЬНО ослабляем!)
         min_hours = self.config.get("behavior", {}).get("min_hours_between_initiatives", 2)
-
-        # В выходные и вечером - можем писать чаще
-        if is_weekend or current_hour >= 18:
-            min_hours = min_hours * 0.7  # Уменьшаем интервал на 30%
+        
+        # НОВОЕ: В тестовом режиме уменьшаем до 30 минут!
+        if self.commands_enabled:  # Если команды включены = тестовый режим
+            min_hours = 0.5  # 30 минут вместо 2 часов!
+            self.logger.info("🧪 ТЕСТОВЫЙ РЕЖИМ: минимальный интервал = 30 минут")
 
         if self.last_message_time:
             hours_since = (datetime.now() - self.last_message_time).total_seconds() / 3600
             if hours_since < min_hours:
-                self.logger.debug(f"⏰ Слишком рано: прошло {hours_since:.1f}ч < {min_hours:.1f}ч")
+                self.logger.info(f"⏰ Слишком рано: {hours_since:.1f}ч < {min_hours:.1f}ч")
                 return False
+            else:
+                self.logger.info(f"✅ Время прошло: {hours_since:.1f}ч >= {min_hours:.1f}ч")
 
-        # 4. Бонусы к желанию
+        # 4. Бонусы к желанию (увеличиваем!)
         bonus_reasons = []
+        original_desire = initiative_desire
 
-        # Часы пик активности
-        peak_hours = [9, 12, 16, 19, 22]
+        # Часы пик активности (расширяем!)
+        peak_hours = [8, 9, 12, 13, 16, 17, 19, 20, 21, 22]  # Больше часов!
         if current_hour in peak_hours:
-            initiative_desire += 1
+            initiative_desire += 2  # Было 1, стало 2!
             bonus_reasons.append(f"час пик ({current_hour})")
 
-        # Выходные - более активное общение
+        # Выходные - НАМНОГО активнее
         if is_weekend:
-            initiative_desire += 1.5
+            initiative_desire += 3  # Было 1.5, стало 3!
             bonus_reasons.append("выходные")
 
-        # Вечернее время - больше желания общаться  
-        if activity_context == "evening_time":
-            initiative_desire += 1
+        # Вечернее время
+        if 18 <= current_hour <= 22:
+            initiative_desire += 2  # Было 1, стало 2!
             bonus_reasons.append("вечер")
 
-        # Учитываем персонажа (исправлен баг!)
-        character = self.character_loader.get_current_character()  # Исправлено: добавлен self.
+        # Учитываем персонажа
+        character = self.character_loader.get_current_character()
         if character:
             name = character.get("name", "").lower()
             if "марин" in name or "китагава" in name:
-                initiative_desire += 1
-                bonus_reasons.append("активный персонаж")
-            
-            # Экстравертные персонажи пишут чаще
-            extraversion = character.get("personality", {}).get("key_traits", [])
-            if any("экстравертн" in trait.lower() for trait in extraversion):
-                initiative_desire += 0.5
-                bonus_reasons.append("экстраверт")
+                initiative_desire += 2  # Было 1, стало 2!
+                bonus_reasons.append("активный персонаж (Марин)")
 
         if bonus_reasons:
-            self.logger.debug(f"✨ Бонусы: {', '.join(bonus_reasons)} -> desire={initiative_desire}")
+            self.logger.info(f"✨ Бонусы: {', '.join(bonus_reasons)}")
+            self.logger.info(f"   Желание: {original_desire} → {initiative_desire}")
 
-        # 5. Рабочее время (ослаблено!)
+        # 5. УБИРАЕМ рабочую блокировку в тестовом режиме!
         work_penalty = 0
-        if activity_context == "work_time" and not is_weekend:
-            # Теперь только 50% блокировка вместо 80%
-            if random.random() < 0.5:  # Было 0.8, стало 0.5
-                self.logger.debug("💼 Рабочее время - блокируем (50% шанс)")
+        if activity_context == "work_time" and not is_weekend and not self.commands_enabled:
+            # Только в продакшене и только 30% блокировка
+            if random.random() < 0.3:  # Было 0.5, стало 0.3
+                self.logger.info("💼 Рабочее время - блокируем (30% шанс)")
                 return False
-            work_penalty = 0.5
-            self.logger.debug("💼 Рабочее время, но прошли проверку")
+            work_penalty = 0.3  # Было 0.5
+            self.logger.info("💼 Рабочее время, но прошли проверку")
 
-        # 6. Финальная проверка (исправлена формула!)
+        # 6. НОВАЯ облегченная формула!
         adjusted_desire = initiative_desire - work_penalty
 
-        # Новая формула: чем больше желание, тем больше шанс
-        chance = min(0.8, adjusted_desire / 10)  # Максимум 80% шанс
+        # Новая формула: намного больше шансов!
+        chance = min(0.95, adjusted_desire / 6)  # Было /10, стало /6!
         random_roll = random.random()
 
         should_send = random_roll < chance
 
-        self.logger.debug(
-            f"🎲 Финальная проверка: desire={adjusted_desire:.1f} -> chance={chance:.2f} "
-            f"vs roll={random_roll:.2f} -> {'✅ ОТПРАВЛЯЕМ' if should_send else '❌ не отправляем'}"
-        )
+        self.logger.info(f"🎲 ФИНАЛЬНАЯ ПРОВЕРКА:")
+        self.logger.info(f"   Скорректированное желание: {adjusted_desire:.1f}")
+        self.logger.info(f"   Шанс отправки: {chance:.2f} ({chance*100:.0f}%)")
+        self.logger.info(f"   Случайное число: {random_roll:.2f}")
+        self.logger.info(f"   Результат: {'✅ ОТПРАВЛЯЕМ!' if should_send else '❌ не отправляем'}")
 
-        # 7. Дополнительная статистика для отладки
         if should_send:
-            self.logger.info(f"🚀 Решение отправить инициативу! Желание: {adjusted_desire:.1f}, бонусы: {bonus_reasons}")
+            self.logger.info(f"🚀 ИНИЦИАТИВА ОДОБРЕНА! Желание {adjusted_desire:.1f}, бонусы: {bonus_reasons}")
 
         return should_send
 

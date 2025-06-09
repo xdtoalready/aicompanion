@@ -54,6 +54,10 @@ class TelegramCompanion(RealisticAICompanion):
         self.app.add_handler(CommandHandler("emotion_stats", self.emotion_stats_command))
         self.app.add_handler(CommandHandler("analyze_emotions", self.analyze_emotions_command))
         self.app.add_handler(CommandHandler("emotional_search", self.emotional_search_command))
+
+        self.app.add_handler(CommandHandler("full_reset", self.full_reset_command))
+        self.app.add_handler(CommandHandler("reset_plans", self.reset_plans_command))
+        self.app.add_handler(CommandHandler("test_initiative", self.test_initiative_command))
         
         # Команды планирования
         if self.commands_enabled:
@@ -122,6 +126,82 @@ class TelegramCompanion(RealisticAICompanion):
             text += "📈 **Высокая активность** - рассмотрите добавление ключей.\n"
         
         await update.message.reply_text(text, parse_mode='Markdown')
+
+    async def full_reset_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """ПОЛНАЯ очистка всех данных для тестирования"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            await update.message.reply_text("🗑️ Начинаю полную очистку данных...")
+            
+            # 1. Очищаем память
+            self.enhanced_memory.clear_all_data()
+            
+            # 2. Очищаем планы и виртуальную жизнь
+            import sqlite3
+            db_path = self.enhanced_memory.db_manager.db_path
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Очищаем планы
+                cursor.execute("DELETE FROM virtual_activities WHERE character_id = 1")
+                cursor.execute("DELETE FROM planning_sessions WHERE character_id = 1")
+                cursor.execute("DELETE FROM character_states WHERE character_id = 1")
+                
+                conn.commit()
+            
+            # 3. Сбрасываем состояние
+            self.daily_message_count = 0
+            self.last_message_time = None
+            self.conversation_history = []
+            
+            # 4. Сбрасываем виртуальную жизнь
+            self.virtual_life.current_activity = None
+            self.virtual_life.availability = "free"
+            self.virtual_life.location = "дома"
+            
+            # 5. Очищаем кэш AI
+            self.optimized_ai.clear_cache()
+            
+            await update.message.reply_text(
+                "✅ Полная очистка завершена!\n\n"
+                "🧠 Память: очищена\n"
+                "📅 Планы: удалены\n"
+                "🎭 Виртуальная жизнь: сброшена\n"
+                "💾 Кэш AI: очищен\n\n"
+                "Система готова к новому тестированию!"
+            )
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка полной очистки: {e}")
+
+    async def reset_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Очистка только планов (сохраняя память)"""
+        if not self.commands_enabled:
+            return
+        
+        try:
+            import sqlite3
+            db_path = self.enhanced_memory.db_manager.db_path
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("DELETE FROM virtual_activities WHERE character_id = 1")
+                cursor.execute("DELETE FROM planning_sessions WHERE character_id = 1")
+                
+                conn.commit()
+            
+            # Сбрасываем состояние виртуальной жизни
+            self.virtual_life.current_activity = None
+            self.virtual_life.availability = "free"
+            
+            await update.message.reply_text("📅 Все планы удалены. Память сохранена.")
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка: {e}")
 
     async def show_plans_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показывает текущие планы (ИСПРАВЛЕНО)"""
@@ -192,6 +272,43 @@ class TelegramCompanion(RealisticAICompanion):
             
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка показа планов: {e}")
+
+    async def test_initiative_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Тестирование логики инициативных сообщений"""
+        if not self.commands_enabled:
+            return
+        
+        await update.message.reply_text("🧪 Запускаю тест инициативной логики...")
+        
+        try:
+            # Принудительно запускаем проверку
+            current_state = await self.optimized_ai.get_simple_mood_calculation(self.psychological_core)
+            
+            # Показываем детальную информацию
+            should_initiate = await self._should_initiate_realistically(current_state)
+            
+            result_text = f"📊 **РЕЗУЛЬТАТ ПРОВЕРКИ ИНИЦИАТИВ:**\n\n"
+            result_text += f"🎯 Желание писать: {current_state.get('initiative_desire', 0)}/10\n"
+            result_text += f"⏰ Текущий час: {datetime.now().hour}\n"
+            result_text += f"📅 Сегодня отправлено: {self.daily_message_count}\n"
+            
+            if self.last_message_time:
+                hours_since = (datetime.now() - self.last_message_time).total_seconds() / 3600
+                result_text += f"🕐 Последнее сообщение: {hours_since:.1f}ч назад\n"
+            else:
+                result_text += f"🕐 Последнее сообщение: никогда\n"
+            
+            result_text += f"\n{'✅ БУДЕТ ОТПРАВЛЕНО' if should_initiate else '❌ НЕ БУДЕТ ОТПРАВЛЕНО'}"
+            
+            if should_initiate:
+                result_text += f"\n\n🚀 Отправляю тестовое инициативное сообщение..."
+                await self.send_initiative_messages(current_state)
+                self.daily_message_count += 1
+            
+            await update.message.reply_text(result_text, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка теста: {e}")
 
     def _extract_time_safely(self, start_time_str: str) -> str:
         """Безопасно извлекает время из строки"""
