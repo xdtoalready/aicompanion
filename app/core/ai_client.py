@@ -43,6 +43,70 @@ class OptimizedAI:
         self.max_emojis = config.get('messaging', {}).get('max_emojis', 2)
         
         logging.info(f"AI клиент с персонажами: {self.model}, tokens={self.max_tokens}")
+
+    async def generate_raw_response(self, user_message: str, context: Dict[str, Any]) -> str:
+        """Генерирует сырой ответ с командами планирования"""
+        
+        # Модифицируем промпт для включения команд планирования
+        system_prompt = self._build_character_system_prompt_with_planning(context)
+        modified_message = self._enhance_user_message_for_character(user_message, context.get('question_type', 'statement'))
+        
+        try:
+            if self.api_manager:
+                from .multi_api_manager import APIUsageType
+                response = await self.api_manager.make_request(
+                    APIUsageType.DIALOGUE,
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": modified_message}
+                    ],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    top_p=0.95
+                )
+            else:
+                response = await self.ai_client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": modified_message}
+                    ],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    top_p=0.95
+                )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logging.error(f"Ошибка генерации сырого ответа: {e}")
+            return "Извини, что-то пошло не так..."
+        
+    def _build_character_system_prompt_with_planning(self, context: Dict[str, Any]) -> str:
+        """Строит промпт с поддержкой команд планирования"""
+        
+        base_prompt = self._build_character_system_prompt(context)
+        
+        planning_instructions = """
+
+    КОМАНДЫ САМОПЛАНИРОВАНИЯ:
+    Если ты обещаешь что-то сделать в определенное время, добавь команду планирования в НАЧАЛО ответа:
+
+    • {{plan: 17:00 - написать любимому}} - простое планирование
+    • {{remind: 15:30 - позвонить подруге}} - напоминание  
+    • {{plan_add: 19:00, "встреча в кафе", high, social}} - детальный план
+    • {{plan_now: отдыхаю дома до 16:00}} - текущая активность
+
+    ВАЖНО: 
+    - Команды пиши В САМОМ НАЧАЛЕ ответа
+    - Отделяй команды от основного текста через ||
+    - Если обещаешь написать/позвонить/встретиться в конкретное время - ОБЯЗАТЕЛЬНО добавь план!
+
+    ПРИМЕР:
+    {{plan: 17:00 - написать сообщение}}||Конечно, любимый! Обещаю написать тебе ровно в 17:00!||Буду ждать этого момента! ✨"""
+
+        return base_prompt + planning_instructions
     
     def _get_current_character_context(self) -> Dict[str, Any]:
         """Получает контекст текущего персонажа"""

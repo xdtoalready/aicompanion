@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from openai import AsyncOpenAI
@@ -34,6 +35,233 @@ from .memory_consolidation import (
 # Импорт системы работы с базой данных
 from ..database.memory_manager_optimized import OptimizedMemoryManager
 
+class AISelfPlanningParser:
+    """Парсер команд самопланирования AI"""
+    
+    def __init__(self, virtual_life_manager, logger):
+        self.virtual_life = virtual_life_manager
+        self.logger = logger
+        
+        # Паттерны для разных типов планирования
+        self.planning_patterns = {
+            # {{plan: 17:00 - написать любимому}}
+            'simple': r'\{\{plan:\s*(\d{1,2}):(\d{2})\s*-\s*([^}]+)\}\}',
+            
+            # {{plan_add: 17:00, "написать любимому", high, personal}}
+            'detailed': r'\{\{plan_add:\s*(\d{1,2}):(\d{2}),\s*"([^"]+)",\s*(\w+),\s*(\w+)\}\}',
+            
+            # {{remind: 17:00 - написать сообщение}}
+            'reminder': r'\{\{remind:\s*(\d{1,2}):(\d{2})\s*-\s*([^}]+)\}\}',
+            
+            # {{plan_now: занимаюсь косплеем до 16:00}}
+            'current': r'\{\{plan_now:\s*([^}]+)\}\}'
+        }
+    
+    def parse_and_execute_plans(self, ai_response_text: str) -> str:
+        """Парсит команды планирования и выполняет их, возвращает очищенный текст"""
+        
+        original_text = ai_response_text
+        executed_plans = []
+        
+        # Обрабатываем каждый тип команд
+        for plan_type, pattern in self.planning_patterns.items():
+            matches = re.findall(pattern, ai_response_text)
+            
+            for match in matches:
+                try:
+                    success = self._execute_plan_command(plan_type, match)
+                    if success:
+                        executed_plans.append(f"{plan_type}: {match}")
+                        self.logger.info(f"✅ Выполнена команда планирования: {plan_type} - {match}")
+                    else:
+                        self.logger.warning(f"⚠️ Не удалось выполнить команду: {plan_type} - {match}")
+                        
+                except Exception as e:
+                    self.logger.error(f"❌ Ошибка выполнения команды планирования: {e}")
+            
+            # Убираем команды из текста
+            ai_response_text = re.sub(pattern, '', ai_response_text)
+        
+        # Очищаем лишние пробелы и разделители
+        ai_response_text = re.sub(r'\|\|\s*\|\|', '||', ai_response_text)  # Двойные разделители
+        ai_response_text = re.sub(r'^\|\|', '', ai_response_text)  # В начале
+        ai_response_text = re.sub(r'\|\|$', '', ai_response_text)  # В конце
+        
+        if executed_plans:
+            self.logger.info(f"🤖📅 AI добавил {len(executed_plans)} планов: {executed_plans}")
+        
+        return ai_response_text.strip()
+    
+    def _execute_plan_command(self, plan_type: str, match_data) -> bool:
+        """Выполняет конкретную команду планирования"""
+        
+        try:
+            if plan_type == 'simple':
+                hour, minute, description = match_data
+                return self._add_simple_plan(int(hour), int(minute), description.strip())
+                
+            elif plan_type == 'detailed':
+                hour, minute, description, priority, activity_type = match_data
+                return self._add_detailed_plan(
+                    int(hour), int(minute), 
+                    description.strip(), 
+                    priority.strip(), 
+                    activity_type.strip()
+                )
+                
+            elif plan_type == 'reminder':
+                hour, minute, description = match_data
+                return self._add_reminder(int(hour), int(minute), description.strip())
+                
+            elif plan_type == 'current':
+                description = match_data[0] if isinstance(match_data, tuple) else match_data
+                return self._update_current_activity(description.strip())
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка выполнения команды {plan_type}: {e}")
+            return False
+    
+    def _add_simple_plan(self, hour: int, minute: int, description: str) -> bool:
+        """Добавляет простой план на сегодня"""
+        
+        try:
+            # Создаём время на сегодня
+            today = datetime.now().date()
+            plan_time = datetime.combine(today, datetime.min.time().replace(hour=hour, minute=minute))
+            
+            # Если время уже прошло, планируем на завтра
+            if plan_time <= datetime.now():
+                plan_time += timedelta(days=1)
+                self.logger.info(f"📅 Время {hour:02d}:{minute:02d} уже прошло, планирую на завтра")
+            
+            # Определяем тип активности по описанию
+            activity_type = self._guess_activity_type(description)
+            
+            # Определяем важность
+            importance = self._guess_importance(description)
+            
+            # Добавляем план
+            success = self.virtual_life.schedule_activity(
+                activity_type=activity_type,
+                description=f"🤖 {description}",  # Помечаем как AI-план
+                start_time=plan_time,
+                duration_hours=0.5,  # По умолчанию 30 минут
+                mood_effect=1.0,  # Выполнение обещаний улучшает настроение
+                energy_cost=10
+            )
+            
+            if success:
+                self.logger.info(f"📝 Добавлен AI-план: {plan_time.strftime('%H:%M')} - {description}")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка добавления простого плана: {e}")
+            return False
+    
+    def _add_detailed_plan(self, hour: int, minute: int, description: str, priority: str, activity_type: str) -> bool:
+        """Добавляет детальный план"""
+        
+        try:
+            today = datetime.now().date()
+            plan_time = datetime.combine(today, datetime.min.time().replace(hour=hour, minute=minute))
+            
+            if plan_time <= datetime.now():
+                plan_time += timedelta(days=1)
+            
+            # Конвертируем приоритет в важность
+            priority_map = {
+                'low': 3, 'medium': 5, 'high': 8, 'critical': 10,
+                'низкий': 3, 'средний': 5, 'высокий': 8, 'критический': 10
+            }
+            importance = priority_map.get(priority.lower(), 5)
+            
+            # Конвертируем тип активности
+            activity_type_map = {
+                'personal': 'personal', 'work': 'work', 'social': 'social',
+                'hobby': 'hobby', 'rest': 'rest', 'cosplay': 'cosplay',
+                'личное': 'personal', 'работа': 'work', 'общение': 'social',
+                'хобби': 'hobby', 'отдых': 'rest', 'косплей': 'cosplay'
+            }
+            mapped_type = activity_type_map.get(activity_type.lower(), 'personal')
+            
+            success = self.virtual_life.schedule_activity(
+                activity_type=mapped_type,
+                description=f"🤖 {description}",
+                start_time=plan_time,
+                duration_hours=0.5,
+                mood_effect=1.5 if importance >= 8 else 1.0,
+                energy_cost=15 if importance >= 8 else 10
+            )
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка добавления детального плана: {e}")
+            return False
+    
+    def _add_reminder(self, hour: int, minute: int, description: str) -> bool:
+        """Добавляет напоминание (короткий план на 5 минут)"""
+        
+        try:
+            today = datetime.now().date()
+            plan_time = datetime.combine(today, datetime.min.time().replace(hour=hour, minute=minute))
+            
+            if plan_time <= datetime.now():
+                plan_time += timedelta(days=1)
+            
+            success = self.virtual_life.schedule_activity(
+                activity_type='reminder',
+                description=f"🔔 {description}",
+                start_time=plan_time,
+                duration_hours=0.083,  # 5 минут
+                mood_effect=0.5,
+                energy_cost=5
+            )
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка добавления напоминания: {e}")
+            return False
+    
+    def _update_current_activity(self, description: str) -> bool:
+        """Обновляет текущую активность"""
+        # Пока просто логируем, можно расширить
+        self.logger.info(f"🔄 AI обновил текущую активность: {description}")
+        return True
+    
+    def _guess_activity_type(self, description: str) -> str:
+        """Угадывает тип активности по описанию"""
+        
+        desc_lower = description.lower()
+        
+        if any(word in desc_lower for word in ['косплей', 'костюм', 'шить', 'аниме']):
+            return 'cosplay'
+        elif any(word in desc_lower for word in ['написать', 'сообщение', 'позвонить', 'встретиться']):
+            return 'social'
+        elif any(word in desc_lower for word in ['работа', 'дело', 'задача', 'проект']):
+            return 'work'
+        elif any(word in desc_lower for word in ['отдых', 'отдохнуть', 'расслабиться']):
+            return 'rest'
+        else:
+            return 'personal'
+    
+    def _guess_importance(self, description: str) -> int:
+        """Угадывает важность по описанию"""
+        
+        desc_lower = description.lower()
+        
+        if any(word in desc_lower for word in ['обязательно', 'обещаю', 'важно', 'срочно']):
+            return 8
+        elif any(word in desc_lower for word in ['хочу', 'планирую', 'собираюсь']):
+            return 6
+        elif any(word in desc_lower for word in ['может', 'если', 'попробую']):
+            return 4
+        else:
+            return 5
 
 class RealisticAICompanion:
     """Реалистичный AI-компаньон с многосообщенческими ответами"""
@@ -1395,6 +1623,16 @@ class RealisticAICompanion:
 
             # Обновляем эмоциональное состояние от получения сообщения
             self.psychological_core.update_emotional_state("positive_interaction", 1.0)
+
+            # Генерируем ответ с полным контекстом
+            ai_response_text = await self.optimized_ai.generate_raw_response(message, current_state)
+
+            if not hasattr(self, 'ai_planner_parser'):
+                self.ai_planner_parser = AISelfPlanningParser(self.virtual_life, self.logger)
+        
+            cleaned_response = self.ai_planner_parser.parse_and_execute_plans(ai_response_text)
+
+            ai_messages = self.optimized_ai._process_raw_response(cleaned_response)
 
             # Получаем текущее состояние
             current_state = await self.optimized_ai.get_simple_mood_calculation(
