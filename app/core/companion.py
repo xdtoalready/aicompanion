@@ -63,9 +63,14 @@ class AISelfPlanningParser:
         original_text = ai_response_text
         executed_plans = []
         
+        self.logger.info(f"🔍 Анализирую ответ на команды планирования: {ai_response_text[:100]}...")
+        
         # Обрабатываем каждый тип команд
         for plan_type, pattern in self.planning_patterns.items():
             matches = re.findall(pattern, ai_response_text)
+            
+            if matches:
+                self.logger.info(f"🎯 Найдены команды типа '{plan_type}': {matches}")
             
             for match in matches:
                 try:
@@ -89,8 +94,13 @@ class AISelfPlanningParser:
         
         if executed_plans:
             self.logger.info(f"🤖📅 AI добавил {len(executed_plans)} планов: {executed_plans}")
+        else:
+            self.logger.info("📅 Команд планирования в ответе не найдено")
         
-        return ai_response_text.strip()
+        cleaned = ai_response_text.strip()
+        self.logger.info(f"✂️ Очищенный ответ: {cleaned[:100]}...")
+        
+        return cleaned
     
     def _execute_plan_command(self, plan_type: str, match_data) -> bool:
         """Выполняет конкретную команду планирования"""
@@ -153,7 +163,9 @@ class AISelfPlanningParser:
             )
             
             if success:
-                self.logger.info(f"📝 Добавлен AI-план: {plan_time.strftime('%H:%M')} - {description}")
+                self.logger.info(f"📝 ✅ Добавлен AI-план: {plan_time.strftime('%d.%m %H:%M')} - {description}")
+            else:
+                self.logger.error(f"📝 ❌ Не удалось добавить AI-план: {plan_time.strftime('%d.%m %H:%M')} - {description}")
             
             return success
             
@@ -1624,17 +1636,7 @@ class RealisticAICompanion:
             # Обновляем эмоциональное состояние от получения сообщения
             self.psychological_core.update_emotional_state("positive_interaction", 1.0)
 
-            # Генерируем ответ с полным контекстом
-            ai_response_text = await self.optimized_ai.generate_raw_response(message, current_state)
-
-            if not hasattr(self, 'ai_planner_parser'):
-                self.ai_planner_parser = AISelfPlanningParser(self.virtual_life, self.logger)
-        
-            cleaned_response = self.ai_planner_parser.parse_and_execute_plans(ai_response_text)
-
-            ai_messages = self.optimized_ai._process_raw_response(cleaned_response)
-
-            # Получаем текущее состояние
+            # 🔧 ИСПРАВЛЕНО: Сначала получаем текущее состояние
             current_state = await self.optimized_ai.get_simple_mood_calculation(
                 self.psychological_core
             )
@@ -1643,6 +1645,7 @@ class RealisticAICompanion:
             db_context = self.enhanced_memory.get_context_for_response(message)
             current_state["memory_context"] = db_context
 
+            # Добавляем контекст виртуальной жизни
             try:
                 if hasattr(self.virtual_life, 'get_current_context_for_ai_async'):
                     virtual_context = await self.virtual_life.get_current_context_for_ai_async()
@@ -1657,10 +1660,6 @@ class RealisticAICompanion:
                 self.logger.error(f"Ошибка получения виртуального контекста: {e}")
                 current_state["virtual_life_context"] = "Виртуальная жизнь недоступна"
 
-            # Добавляем контекст виртуальной жизни
-            virtual_context = self.virtual_life.get_current_context_for_ai()
-            current_state["virtual_life_context"] = virtual_context
-
             # Добавляем контекст персонажа
             character_context = self.character_loader.get_character_context_for_ai()
             current_state["character_context"] = character_context
@@ -1668,10 +1667,17 @@ class RealisticAICompanion:
             self.logger.info(f"Контекст персонажа: {character_context[:100]}...")
             self.logger.info(f"Контекст виртуальной жизни: {virtual_context[:100]}...")
 
-            # Генерируем ответ с полным контекстом
-            ai_messages = await self.optimized_ai.generate_split_response(
-                message, current_state
-            )
+            # ✅ ТЕПЕРЬ генерируем ответ с полным контекстом
+            ai_response_text = await self.optimized_ai.generate_raw_response(message, current_state)
+
+            # 🤖📅 Парсинг и выполнение команд планирования
+            if not hasattr(self, 'ai_planner_parser'):
+                self.ai_planner_parser = AISelfPlanningParser(self.virtual_life, self.logger)
+            
+            cleaned_response = self.ai_planner_parser.parse_and_execute_plans(ai_response_text)
+
+            # Обрабатываем очищенный ответ
+            ai_messages = self.optimized_ai._process_raw_response(cleaned_response)
 
             # Получаем настроение ПОСЛЕ обработки
             mood_after = self.psychological_core.emotional_momentum["current_emotion"]
