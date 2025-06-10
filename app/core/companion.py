@@ -755,14 +755,14 @@ class RealisticAICompanion:
             self.logger.info(f"✨ Бонусы: {', '.join(bonus_reasons)}")
             self.logger.info(f"   Желание: {original_desire} → {initiative_desire}")
 
-        # 5. УБИРАЕМ рабочую блокировку в тестовом режиме!
+        # Рабочая блокировка (ослабленная)
         work_penalty = 0
-        if activity_context == "work_time" and not is_weekend and not self.commands_enabled:
-            # Только в продакшене и только 30% блокировка
-            if random.random() < 0.3:  # Было 0.5, стало 0.3
+        if activity_context == "work_time" and not is_weekend:
+            # Только 30% блокировка в рабочее время
+            if random.random() < 0.3:
                 self.logger.info("💼 Рабочее время - блокируем (30% шанс)")
                 return False
-            work_penalty = 0.3  # Было 0.5
+            work_penalty = 0.3
             self.logger.info("💼 Рабочее время, но прошли проверку")
 
         # 6. НОВАЯ облегченная формула!
@@ -1592,8 +1592,6 @@ class RealisticAICompanion:
 
     async def api_stats_command(self, update: Any, context: Any):
         """Статистика использования API ключей"""
-        if not self.commands_enabled:
-            return
         
         stats = self.api_manager.get_usage_stats()
         

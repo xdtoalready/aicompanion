@@ -327,23 +327,191 @@ class OptimizedMemoryManager:
     
     # Остальные методы остаются без изменений...
     def save_conversation(self, user_message: str, ai_responses: List[str], mood_before: str, mood_after: str) -> Optional[int]:
-        """Сохраняет диалог (без изменений)"""
-        # ... существующий код ...
-        pass
+        """Сохраняет диалог в базу данных (ИСПРАВЛЕННАЯ ВЕРСИЯ)"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Объединяем множественные ответы
+                ai_response_text = " || ".join(ai_responses)
+                
+                cursor.execute("""
+                    INSERT INTO conversations 
+                    (character_id, user_message, ai_response, mood_before, mood_after, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    self.character_id, user_message, ai_response_text, 
+                    mood_before, mood_after, datetime.now().isoformat()
+                ))
+                
+                conversation_id = cursor.lastrowid
+                conn.commit()
+                
+                self.logger.info(f"💾 Диалог сохранен с ID: {conversation_id}")
+                
+                # Автоматически извлекаем воспоминания из диалога
+                self._extract_memories_from_conversation(
+                    user_message, ai_responses, conversation_id
+                )
+                
+                # Очищаем кэш после обновления
+                self.memory_cache.clear()
+                
+                return conversation_id
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка сохранения диалога: {e}")
+            return None
+        
+    def _extract_memories_from_conversation(self, user_message: str, ai_responses: List[str], conversation_id: int):
+        """Извлекает факты из диалога для сохранения в память"""
+        
+        try:
+            # Простое извлечение фактов по ключевым словам
+            facts_to_save = []
+            
+            user_lower = user_message.lower()
+            
+            # Факты о предпочтениях
+            preference_keywords = ["люблю", "нравится", "обожаю", "не люблю", "ненавижу"]
+            if any(keyword in user_lower for keyword in preference_keywords):
+                facts_to_save.append({
+                    "content": f"Предпочтения: {user_message}",
+                    "type": "preference", 
+                    "importance": 6,
+                    "emotional_intensity": 6.0,
+                    "emotion_type": "preference"
+                })
+            
+            # Факты о работе/учебе
+            work_keywords = ["работаю", "учусь", "работа", "учеба", "профессия"]
+            if any(keyword in user_lower for keyword in work_keywords):
+                facts_to_save.append({
+                    "content": f"Работа/учеба: {user_message}",
+                    "type": "life_fact",
+                    "importance": 7,
+                    "emotional_intensity": 5.0,
+                    "emotion_type": "factual"
+                })
+            
+            # Эмоциональные состояния
+            emotion_keywords = ["грустно", "весело", "счастлив", "расстроен", "злой"]
+            if any(keyword in user_lower for keyword in emotion_keywords):
+                facts_to_save.append({
+                    "content": f"Эмоциональное состояние: {user_message}",
+                    "type": "emotional_state",
+                    "importance": 5,
+                    "emotional_intensity": 7.0,
+                    "emotion_type": "emotional"
+                })
+            
+            # Batch сохранение найденных фактов
+            if facts_to_save:
+                self.add_memory_batch([{
+                    "type": fact["type"],
+                    "content": fact["content"],
+                    "importance": fact["importance"],
+                    "emotional_intensity": fact["emotional_intensity"],
+                    "emotion_type": fact["emotion_type"]
+                } for fact in facts_to_save])
+                
+                self.logger.info(f"🧠 Извлечено {len(facts_to_save)} воспоминаний из диалога")
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка извлечения воспоминаний: {e}")
+
+    @contextmanager
+    def get_db_connection(self):
+        """Контекстный менеджер для подключения к БД"""
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30)
+            conn.row_factory = sqlite3.Row  # Для удобного доступа к колонкам
+            yield conn
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            self.logger.error(f"Ошибка БД: {e}")
+            raise
+        finally:
+            if conn:
+                conn.close()
     
     def build_context_for_prompt(self, current_message: str) -> str:
-        """Создание контекста (теперь использует быстрый поиск)"""
-        memories = self.get_relevant_memories_fast(current_message, 5)
+        """Создание контекста (РЕАЛИЗОВАННАЯ ВЕРСИЯ)"""
+        try:
+            # Получаем релевантные воспоминания быстро
+            memories = self.get_relevant_memories_fast(current_message, 5)
+            
+            # Получаем недавние диалоги
+            recent_convs = self.get_recent_conversations(3)
+            
+            context_parts = []
+            
+            if memories:
+                context_parts.append("ПАМЯТЬ О ПОЛЬЗОВАТЕЛЕ:")
+                
+                # Разделяем обычные и консолидированные воспоминания
+                regular_memories = [m for m in memories if m.get('source') != 'consolidated']
+                consolidated_memories = [m for m in memories if m.get('source') == 'consolidated']
+                
+                # Сначала консолидированные (долгосрочная память)
+                if consolidated_memories:
+                    context_parts.append("Долгосрочные воспоминания:")
+                    for mem in consolidated_memories[:2]:
+                        emotion_info = f"({mem['emotion_type']}: {mem['emotional_intensity']:.1f})" if mem.get('emotion_type') else ""
+                        context_parts.append(f"- {mem['content']} {emotion_info}")
+                
+                # Потом обычные (краткосрочная память)
+                if regular_memories:
+                    context_parts.append("Недавние воспоминания:")
+                    for mem in regular_memories[:3]:
+                        emotion_info = f"({mem['emotion_type']}: {mem['emotional_intensity']:.1f})" if mem.get('emotion_type') else ""
+                        context_parts.append(f"- {mem['content']} {emotion_info}")
+            
+            if recent_convs:
+                context_parts.append("\nНЕДАВНИЕ ДИАЛОГИ:")
+                for conv in recent_convs[-2:]:  # Последние 2
+                    context_parts.append(f"Пользователь: {conv['user_message']}")
+                    # Если это многосообщенческий ответ, показываем только первое
+                    ai_response = conv['ai_response'].split('||')[0].strip() if '||' in conv['ai_response'] else conv['ai_response']
+                    context_parts.append(f"Ты: {ai_response}")
+            
+            return "\n".join(context_parts) if context_parts else "Новое знакомство"
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка создания контекста: {e}")
+            return "Новое знакомство"
         
-        # Остальная логика без изменений...
-        context_parts = []
-        
-        if memories:
-            context_parts.append("ПАМЯТЬ О ПОЛЬЗОВАТЕЛЕ:")
-            for mem in memories[:3]:
-                context_parts.append(f"- {mem['content']}")
-        
-        return "\n".join(context_parts) if context_parts else "Новое знакомство"
+    def get_recent_conversations(self, limit: int = 5) -> List[Dict]:
+        """Получает недавние диалоги (РЕАЛИЗОВАННАЯ ВЕРСИЯ)"""
+        try:
+            with self.get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT user_message, ai_response, mood_before, mood_after, timestamp
+                    FROM conversations 
+                    WHERE character_id = ?
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                """, (self.character_id, limit))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        "user_message": row[0],
+                        "ai_response": row[1],
+                        "mood_before": row[2], 
+                        "mood_after": row[3],
+                        "timestamp": row[4]
+                    })
+                
+                return results
+
+        except Exception as e:
+            self.logger.error(f"Ошибка получения диалогов: {e}")
+            return []
     
     def add_conversation(self, user_message: str, ai_responses: List[str], mood_before: str, mood_after: str):
         """Совместимость с EnhancedMemorySystem"""
