@@ -688,7 +688,7 @@ class RealisticAICompanion:
             self.logger.error(f"💥 [CONSCIOUSNESS] Ошибка в цикле сознания: {e}", exc_info=True)
 
     async def _should_initiate_realistically(self, current_state: Dict) -> bool:
-        """решение об инициативе с подробным логированием"""
+        """Решение об инициативе с динамическими интервалами"""
 
         initiative_desire = current_state.get("initiative_desire", 0)
         current_hour = datetime.now().hour
@@ -702,45 +702,55 @@ class RealisticAICompanion:
         self.logger.info(f"   Активность: {activity_context}")
         self.logger.info(f"   Сообщений сегодня: {self.daily_message_count}")
 
-        # 1. Ночное время - спим (но ослабляем)
-        if current_hour >= 24 or current_hour < 6:  # Было 23-7, стало 0-6
+        # 1. Ночное время - спим (ослабленное)
+        if current_hour >= 24 or current_hour < 6:
             self.logger.info("😴 Слишком поздно/рано - не пишем")
             return False
 
-        # 2. СИЛЬНО ОСЛАБЛЯЕМ базовый порог! 
-        if initiative_desire < 1:  # Было 2, стало 1!
-            self.logger.info(f"😐 Очень слабое желание: {initiative_desire} < 1")
+        # 2. Минимальное желание (сильно ослабляем!)
+        if initiative_desire < 0.5:  # Было 1, стало 0.5!
+            self.logger.info(f"😐 Очень слабое желание: {initiative_desire} < 0.5")
             return False
 
-        # 3. Проверяем время последнего сообщения (СИЛЬНО ослабляем!)
-        min_hours = self.config.get("behavior", {}).get("min_hours_between_initiatives", 2)
-
+        # 3. НОВАЯ СИСТЕМА: Динамические интервалы вместо жёстких 2 часов!
+        dynamic_interval = await self._calculate_dynamic_interval(current_state)
+        
         if self.last_message_time:
             hours_since = (datetime.now() - self.last_message_time).total_seconds() / 3600
-            if hours_since < min_hours:
-                self.logger.info(f"⏰ Слишком рано: {hours_since:.1f}ч < {min_hours:.1f}ч")
-                return False
+            
+            # Теперь интервал зависит от ситуации, а не жёстко 2 часа
+            if hours_since < dynamic_interval:
+                self.logger.info(f"⏰ Динамический интервал: {hours_since:.1f}ч < {dynamic_interval:.1f}ч")
+                
+                # НО! Добавляем шанс "спонтанности" даже при невыполненном интервале
+                spontaneity_chance = await self._calculate_spontaneity_chance(current_state, hours_since, dynamic_interval)
+                
+                if random.random() < spontaneity_chance:
+                    self.logger.info(f"✨ СПОНТАННОСТЬ! Пишем несмотря на интервал (шанс: {spontaneity_chance:.2f})")
+                else:
+                    self.logger.info(f"❌ Спонтанность не сработала (шанс: {spontaneity_chance:.2f})")
+                    return False
             else:
-                self.logger.info(f"✅ Время прошло: {hours_since:.1f}ч >= {min_hours:.1f}ч")
+                self.logger.info(f"✅ Динамический интервал пройден: {hours_since:.1f}ч >= {dynamic_interval:.1f}ч")
 
         # 4. Бонусы к желанию (увеличиваем!)
         bonus_reasons = []
         original_desire = initiative_desire
 
         # Часы пик активности (расширяем!)
-        peak_hours = [8, 9, 12, 13, 16, 17, 19, 20, 21, 22]  # Больше часов!
+        peak_hours = [8, 9, 12, 13, 16, 17, 19, 20, 21, 22]
         if current_hour in peak_hours:
-            initiative_desire += 2  # Было 1, стало 2!
+            initiative_desire += 2
             bonus_reasons.append(f"час пик ({current_hour})")
 
         # Выходные - НАМНОГО активнее
         if is_weekend:
-            initiative_desire += 3  # Было 1.5, стало 3!
+            initiative_desire += 3
             bonus_reasons.append("выходные")
 
         # Вечернее время
         if 18 <= current_hour <= 22:
-            initiative_desire += 2  # Было 1, стало 2!
+            initiative_desire += 2
             bonus_reasons.append("вечер")
 
         # Учитываем персонажа
@@ -748,28 +758,30 @@ class RealisticAICompanion:
         if character:
             name = character.get("name", "").lower()
             if "марин" in name or "китагава" in name:
-                initiative_desire += 2  # Было 1, стало 2!
+                initiative_desire += 2
                 bonus_reasons.append("активный персонаж (Марин)")
+
+        # НОВОЕ: Бонус от текущего дела
+        activity_bonus = await self._get_activity_initiative_bonus(current_state)
+        if activity_bonus > 0:
+            initiative_desire += activity_bonus
+            bonus_reasons.append(f"интересное дело (+{activity_bonus})")
 
         if bonus_reasons:
             self.logger.info(f"✨ Бонусы: {', '.join(bonus_reasons)}")
             self.logger.info(f"   Желание: {original_desire} → {initiative_desire}")
 
-        # Рабочая блокировка (ослабленная)
-        work_penalty = 0
-        if activity_context == "work_time" and not is_weekend:
-            # Только 30% блокировка в рабочее время
-            if random.random() < 0.3:
-                self.logger.info("💼 Рабочее время - блокируем (30% шанс)")
-                return False
-            work_penalty = 0.3
-            self.logger.info("💼 Рабочее время, но прошли проверку")
+        # 5. Работа теперь НЕ блокирует, а только уменьшает шанс
+        work_penalty = await self._calculate_work_penalty(current_state)
+        
+        if work_penalty > 0:
+            self.logger.info(f"💼 Рабочий штраф: -{work_penalty:.2f}")
 
         # 6. НОВАЯ облегченная формула!
-        adjusted_desire = initiative_desire - work_penalty
+        adjusted_desire = max(0.1, initiative_desire - work_penalty)  # Минимум 0.1
 
-        # Новая формула: намного больше шансов!
-        chance = min(0.95, adjusted_desire / 6)  # Было /10, стало /6!
+        # Более агрессивная формула для частых сообщений
+        chance = min(0.95, adjusted_desire / 5)  # Было /6, стало /5!
         random_roll = random.random()
 
         should_send = random_roll < chance
@@ -784,6 +796,152 @@ class RealisticAICompanion:
             self.logger.info(f"🚀 ИНИЦИАТИВА ОДОБРЕНА! Желание {adjusted_desire:.1f}, бонусы: {bonus_reasons}")
 
         return should_send
+    
+    async def _calculate_dynamic_interval(self, current_state: Dict) -> float:
+        """Рассчитывает динамический интервал между сообщениями"""
+        
+        base_interval = 1.0  # Базовый интервал 1 час (было 2!)
+        
+        # Модификаторы интервала
+        activity_context = current_state.get("activity_context", "")
+        is_weekend = current_state.get("is_weekend", False)
+        current_hour = datetime.now().hour
+        
+        # Выходные - чаще пишем
+        if is_weekend:
+            base_interval *= 0.7  # 42 минуты
+        
+        # Вечернее время - активнее
+        if 18 <= current_hour <= 22:
+            base_interval *= 0.8  # 48 минут
+        
+        # Обеденное время - может написать
+        if 12 <= current_hour <= 14:
+            base_interval *= 0.9  # 54 минуты
+        
+        # Рабочее время - реже, но не блокируем полностью
+        if activity_context == "work_time" and not is_weekend:
+            base_interval *= 1.5  # 1.5 часа
+        
+        # Добавляем случайность ±30%
+        randomness = random.uniform(0.7, 1.3)
+        final_interval = base_interval * randomness
+        
+        # Ограничиваем: минимум 20 минут, максимум 4 часа
+        final_interval = max(0.33, min(4.0, final_interval))
+        
+        self.logger.debug(f"🕐 Динамический интервал: {final_interval:.1f}ч (база: {base_interval:.1f}ч)")
+        
+        return final_interval
+    
+    async def _calculate_spontaneity_chance(self, current_state: Dict, hours_since: float, required_interval: float) -> float:
+        """Рассчитывает шанс спонтанности при невыполненном интервале"""
+        
+        # Базовый шанс спонтанности зависит от того, насколько близко к интервалу
+        progress = hours_since / required_interval  # От 0 до 1
+        
+        # Базовый шанс растёт с приближением к интервалу
+        base_chance = max(0, (progress - 0.3) * 0.4)  # После 30% интервала начинает расти
+        
+        # Модификаторы спонтанности
+        initiative_desire = current_state.get("initiative_desire", 0)
+        is_weekend = current_state.get("is_weekend", False)
+        activity_context = current_state.get("activity_context", "")
+        
+        # Высокое желание = больше спонтанности
+        if initiative_desire >= 7:
+            base_chance += 0.15
+        elif initiative_desire >= 5:
+            base_chance += 0.08
+        
+        # Выходные = больше спонтанности
+        if is_weekend:
+            base_chance += 0.1
+        
+        # Вечернее время = больше спонтанности
+        current_hour = datetime.now().hour
+        if 19 <= current_hour <= 22:
+            base_chance += 0.08
+        
+        # Обеденное время = средняя спонтанность
+        if 12 <= current_hour <= 14:
+            base_chance += 0.05
+        
+        # Рабочее время = меньше спонтанности, но не ноль
+        if activity_context == "work_time" and not is_weekend:
+            base_chance *= 0.3  # Сильно уменьшаем, но не убираем
+        
+        # Персонаж-модификатор
+        character = self.character_loader.get_current_character()
+        if character:
+            name = character.get("name", "").lower()
+            if "марин" in name or "китагава" in name:
+                base_chance += 0.1  # Марин более спонтанная
+        
+        # Ограничиваем шанс
+        final_chance = max(0, min(0.4, base_chance))  # Максимум 40% спонтанности
+        
+        self.logger.debug(f"✨ Шанс спонтанности: {final_chance:.2f} (прогресс: {progress:.2f})")
+        
+        return final_chance
+    
+    async def _get_activity_initiative_bonus(self, current_state: Dict) -> float:
+        """Бонус к инициативе от текущей активности"""
+        
+        # Получаем контекст виртуальной жизни
+        virtual_context = current_state.get("virtual_life_context", "")
+        
+        bonus = 0.0
+        
+        # Парсим контекст для поиска интересных активностей
+        if "косплей" in virtual_context.lower():
+            bonus += 1.5  # Косплей = хочется поделиться
+        
+        if "хобби" in virtual_context.lower() or "hobby" in virtual_context.lower():
+            bonus += 1.0  # Хобби = энтузиазм
+        
+        if "друзья" in virtual_context.lower() or "social" in virtual_context.lower():
+            bonus += 0.8  # Социальная активность = хочется общаться
+        
+        if "важность: 8" in virtual_context or "важность: 9" in virtual_context or "важность: 10" in virtual_context:
+            bonus += 0.5  # Важное дело = может написать об этом
+        
+        if "свободна" in virtual_context.lower():
+            bonus += 1.2  # Свободна = больше времени на общение
+        
+        self.logger.debug(f"🎯 Бонус от активности: +{bonus:.1f}")
+        
+        return bonus
+
+    async def _calculate_work_penalty(self, current_state: Dict) -> float:
+        """Рассчитывает штраф за рабочее время (вместо полной блокировки)"""
+        
+        activity_context = current_state.get("activity_context", "")
+        is_weekend = current_state.get("is_weekend", False)
+        current_hour = datetime.now().hour
+        
+        # Рабочее время в будни
+        if activity_context == "work_time" and not is_weekend:
+            # Получаем важность текущего дела
+            virtual_context = current_state.get("virtual_life_context", "")
+            
+            # Если очень важное дело (8-10) - больше штраф
+            if any(pattern in virtual_context for pattern in ["важность: 8", "важность: 9", "важность: 10", "ВАЖНО"]):
+                penalty = 2.0  # Серьёзный штраф, но не блокировка
+                self.logger.debug("💼 Важное рабочее дело - большой штраф")
+            # Обычное рабочее время
+            else:
+                penalty = 1.0  # Умеренный штраф
+                self.logger.debug("💼 Обычное рабочее время - умеренный штраф")
+            
+            # В обеденное время штраф меньше
+            if 12 <= current_hour <= 14:
+                penalty *= 0.5
+                self.logger.debug("🍽️ Обеденное время - штраф уменьшен")
+                
+            return penalty
+        
+        return 0.0
 
     async def update_virtual_life(self):
         """Обновляет виртуальную жизнь персонажа"""
