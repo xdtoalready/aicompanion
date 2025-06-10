@@ -205,7 +205,7 @@ class RealisticAICompanion:
         self.scheduler.start()
 
     async def check_and_generate_plans_on_startup(self):
-        """Проверяет есть ли планы на сегодня при запуске, если нет - генерирует"""
+        """Проверяет есть ли планы на сегодня при запуске"""
         try:
             self.logger.info("🔍 Проверка планов при запуске системы...")
             
@@ -229,9 +229,11 @@ class RealisticAICompanion:
                             "Теперь всё готово для продуктивного дня! 💪"
                         ]
                         
+                        current_state = await self.optimized_ai.get_simple_mood_calculation(self.psychological_core)
+                        
                         await self.deliver_messages_with_timing(
                             emergency_messages,
-                            await self.optimized_ai.get_simple_mood_calculation(self.psychological_core),
+                            current_state,
                             message_type="emergency_planning"
                         )
                 else:
@@ -239,8 +241,59 @@ class RealisticAICompanion:
             else:
                 self.logger.info(f"✅ Планы на сегодня уже есть: {len(today_plans)} активностей")
                 
+                # Показываем первые несколько планов для контроля
+                for i, plan in enumerate(today_plans[:3]):
+                    time_str = plan.get('start_time', '').split(' ')[1][:5] if ' ' in plan.get('start_time', '') else plan.get('start_time', '')[:5]
+                    self.logger.info(f"   {i+1}. {time_str} - {plan.get('description', 'Неизвестно')} (важность: {plan.get('importance', 'N/A')})")
+                
+                if len(today_plans) > 3:
+                    self.logger.info(f"   ... и ещё {len(today_plans) - 3} планов")
+                    
         except Exception as e:
             self.logger.error(f"Ошибка проверки планов при запуске: {e}")
+
+    def check_database_health(self) -> Dict[str, Any]:
+        """Проверяет состояние базы данных"""
+        try:
+            import sqlite3
+            
+            with sqlite3.connect(self.enhanced_memory.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Проверяем основные таблицы
+                tables_to_check = [
+                    'virtual_activities', 
+                    'planning_sessions', 
+                    'memories', 
+                    'conversations'
+                ]
+                
+                table_status = {}
+                for table in tables_to_check:
+                    try:
+                        cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                        count = cursor.fetchone()[0]
+                        table_status[table] = {"exists": True, "rows": count}
+                    except sqlite3.OperationalError:
+                        table_status[table] = {"exists": False, "rows": 0}
+                
+                # Размер БД
+                cursor.execute("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
+                db_size = cursor.fetchone()[0]
+                
+                return {
+                    "db_path": self.enhanced_memory.db_path,
+                    "db_size_mb": round(db_size / 1024 / 1024, 2),
+                    "tables": table_status,
+                    "health": "OK"
+                }
+                
+        except Exception as e:
+            return {
+                "db_path": getattr(self.enhanced_memory, 'db_path', 'unknown'),
+                "error": str(e),
+                "health": "ERROR"
+            }
 
     async def morning_planning_cycle(self):
         """Утренний цикл планирования в 6:00"""
@@ -295,7 +348,8 @@ class RealisticAICompanion:
             
             today = date.today().isoformat()
             
-            with sqlite3.connect(self.enhanced_memory.db_manager.db_path) as conn:
+            # ИСПРАВЛЕНО: db_path напрямую у OptimizedMemoryManager
+            with sqlite3.connect(self.enhanced_memory.db_path) as conn:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
@@ -315,6 +369,7 @@ class RealisticAICompanion:
                         'flexibility': row[4]
                     })
                 
+                self.logger.info(f"📅 Найдено {len(plans)} ИИ-планов на {today}")
                 return plans
                 
         except Exception as e:
@@ -371,17 +426,18 @@ class RealisticAICompanion:
             import sqlite3
             from datetime import date, timedelta
             
-            db_path = self.enhanced_memory.db_manager.db_path
+            # db_path напрямую
+            db_path = self.enhanced_memory.db_path
             
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
                 
                 # Общая статистика планирования
                 cursor.execute("SELECT COUNT(*) FROM planning_sessions")
-                total_sessions = cursor.fetchone()[0]
+                total_sessions = cursor.fetchone()[0] or 0
                 
                 cursor.execute("SELECT COUNT(*) FROM virtual_activities WHERE generated_by_ai = 1")
-                total_ai_activities = cursor.fetchone()[0]
+                total_ai_activities = cursor.fetchone()[0] or 0
                 
                 # Статистика за последнюю неделю
                 week_ago = (date.today() - timedelta(days=7)).isoformat()
@@ -389,14 +445,14 @@ class RealisticAICompanion:
                     SELECT COUNT(*) FROM planning_sessions 
                     WHERE planning_date >= ?
                 """, (week_ago,))
-                weekly_sessions = cursor.fetchone()[0]
+                weekly_sessions = cursor.fetchone()[0] or 0
                 
                 # Успешность планирования
                 cursor.execute("""
                     SELECT COUNT(*) FROM planning_sessions 
                     WHERE success = 1 AND planning_date >= ?
                 """, (week_ago,))
-                successful_sessions = cursor.fetchone()[0]
+                successful_sessions = cursor.fetchone()[0] or 0
                 
                 # Планы на сегодня
                 today = date.today().isoformat()
@@ -404,7 +460,7 @@ class RealisticAICompanion:
                     SELECT COUNT(*) FROM virtual_activities
                     WHERE planning_date = ? AND generated_by_ai = 1
                 """, (today,))
-                today_plans = cursor.fetchone()[0]
+                today_plans = cursor.fetchone()[0] or 0
                 
                 return {
                     "total_sessions": total_sessions,
@@ -641,7 +697,7 @@ class RealisticAICompanion:
             self.logger.error(f"Ошибка сохранения анализа: {e}")
 
     async def consciousness_cycle(self):
-        """Реалистичный цикл сознания с многосообщенческими инициативами (ИСПРАВЛЕНО)"""
+        """Реалистичный цикл сознания с многосообщенческими инициативами"""
 
         try:
             # Отмечаем время проверки для мониторинга
@@ -761,7 +817,7 @@ class RealisticAICompanion:
                 initiative_desire += 2
                 bonus_reasons.append("активный персонаж (Марин)")
 
-        # НОВОЕ: Бонус от текущего дела
+        # Бонус от текущего дела
         activity_bonus = await self._get_activity_initiative_bonus(current_state)
         if activity_bonus > 0:
             initiative_desire += activity_bonus
@@ -964,7 +1020,7 @@ class RealisticAICompanion:
         """Уведомляет о начале активности с AI-гуманизацией"""
         
         try:
-            # НОВОЕ: Используем AI-гуманизатор для конвертации описания
+            # Используем AI-гуманизатор для конвертации описания
             if hasattr(self.virtual_life, 'activity_humanizer') and self.virtual_life.activity_humanizer:
                 try:
                     # Гуманизируем техническое название активности
@@ -1249,7 +1305,7 @@ class RealisticAICompanion:
         self.logger.info("📅 Автоматическое расписание создано на 3 дня")
 
     async def send_initiative_messages(self, current_state: Dict):
-        """Отправка инициативных сообщений с учётом виртуальной жизни (ИСПРАВЛЕНО)"""
+        """Отправка инициативных сообщений с учётом виртуальной жизни"""
 
         # Получаем контекст из базы данных
         db_context = self.enhanced_memory.get_context_for_response(
@@ -1511,7 +1567,7 @@ class RealisticAICompanion:
         current_state: Dict[str, Any],
         message_type: str = "response",
     ):
-        """Доставка сообщений с реалистичным печатанием и адаптивной скоростью (ИСПРАВЛЕНО)"""
+        """Доставка сообщений с реалистичным печатанием и адаптивной скоростью"""
 
         if not messages:
             self.logger.warning("deliver_messages_with_timing: Нет сообщений для доставки")
@@ -1522,7 +1578,7 @@ class RealisticAICompanion:
         emotional_state = current_state.get("dominant_emotion", "calm")
         energy_level = current_state.get("energy_level", 50)
 
-        # НОВОЕ: Адаптивная скорость печатания в зависимости от состояния
+        # Адаптивная скорость печатания в зависимости от состояния
         mood = current_state.get("current_mood", "нормальное")
         if "возбужден" in emotional_state or "excited" in emotional_state:
             self.typing_simulator.set_speed_mode("fast")
@@ -1715,7 +1771,7 @@ class RealisticAICompanion:
         else:
             base_stats["avg_messages_per_response"] = 0
 
-        # НОВОЕ: Добавляем информацию о персонаже
+        # Добавляем информацию о персонаже
         character_info = self.get_current_character_info()
         base_stats.update(
             {
