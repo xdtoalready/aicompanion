@@ -21,6 +21,8 @@ class OptimizedAI:
             self.ai_client = api_manager_or_client
             self.api_manager = None
 
+        self.logger = logging.getLogger(__name__)
+
         self.config = config
         self.character_loader = character_loader 
         self.prompt_cache = {}
@@ -279,7 +281,7 @@ class OptimizedAI:
                     self.logger.info("⚠️ Использован синхронный fallback контекст")
                     
             except Exception as e:
-                logging.error(f"Ошибка получения контекста виртуальной жизни: {e}")
+                self.logger.error(f"Ошибка получения контекста виртуальной жизни: {e}")  # Исправлено: self.logger
                 # Двойной fallback - пустой контекст
                 virtual_context = "Виртуальная жизнь недоступна"
 

@@ -165,8 +165,16 @@ class RealisticAICompanion:
         # Утреннее планирование в 6:00
         self.scheduler.add_job(
             self.morning_planning_cycle,
-            CronTrigger(hour=6, minute=0),  # Используем CronTrigger
+            CronTrigger(hour=6, minute=0),
             id="morning_planning"
+        )
+
+        # Проверка планов при запуске
+        self.scheduler.add_job(
+            self.check_and_generate_plans_on_startup,
+            'date',
+            run_date=datetime.now() + timedelta(seconds=10),
+            id="startup_planning_check"
         )
 
         # Остальные задачи...
@@ -195,6 +203,44 @@ class RealisticAICompanion:
         )
 
         self.scheduler.start()
+
+    async def check_and_generate_plans_on_startup(self):
+        """Проверяет есть ли планы на сегодня при запуске, если нет - генерирует"""
+        try:
+            self.logger.info("🔍 Проверка планов при запуске системы...")
+            
+            # Проверяем есть ли планы на сегодня
+            today_plans = await self._get_today_ai_plans()
+            
+            if not today_plans:
+                self.logger.info("📅 Планов на сегодня нет - запускаю экстренное планирование!")
+                
+                # Генерируем план немедленно
+                success = await self.daily_planner.generate_daily_plan()
+                
+                if success:
+                    self.logger.info("✅ Экстренное планирование выполнено успешно!")
+                    
+                    # Уведомляем пользователей (опционально)
+                    if hasattr(self, 'allowed_users') and self.config.get('notify_about_emergency_planning', False):
+                        emergency_messages = [
+                            "Ой! Я проспала утреннее планирование! 😅",
+                            "Но сейчас быстро составила план на день! ✨", 
+                            "Теперь всё готово для продуктивного дня! 💪"
+                        ]
+                        
+                        await self.deliver_messages_with_timing(
+                            emergency_messages,
+                            await self.optimized_ai.get_simple_mood_calculation(self.psychological_core),
+                            message_type="emergency_planning"
+                        )
+                else:
+                    self.logger.warning("⚠️ Экстренное планирование не удалось")
+            else:
+                self.logger.info(f"✅ Планы на сегодня уже есть: {len(today_plans)} активностей")
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка проверки планов при запуске: {e}")
 
     async def morning_planning_cycle(self):
         """Утренний цикл планирования в 6:00"""
