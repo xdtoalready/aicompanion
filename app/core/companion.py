@@ -290,6 +290,9 @@ class RealisticAICompanion:
         # Инициализация компонентов
         self.psychological_core = PsychologicalCore()
 
+        # Трекинг отправленных уведомлений
+        self.notified_activities = set()
+
         # База данных для памяти
         db_path = config.get("database", {}).get("path", "data/companion.db")
         self.enhanced_memory = OptimizedMemoryManager(db_path)
@@ -440,6 +443,13 @@ class RealisticAICompanion:
             self.update_virtual_life,
             IntervalTrigger(minutes=1),
             id="virtual_life_update",
+        )
+
+        # Очистка уведомлений в полночь
+        self.scheduler.add_job(
+            self.clean_activity_notifications,
+            CronTrigger(hour=0, minute=0),
+            id="clean_notifications"
         )
 
         self.scheduler.start()
@@ -1240,30 +1250,40 @@ class RealisticAICompanion:
         return 0.0
 
     async def update_virtual_life(self):
-        """Обновляет виртуальную жизнь персонажа"""
+        """Обновляет виртуальную жизнь персонажа (ИСПРАВЛЕНО)"""
         try:
             changes = self.virtual_life.check_and_update_activities()
 
+            # Уведомляем только при реальных изменениях
             if changes["status_changed"]:
                 if changes["activity_started"]:
                     activity = changes["activity_started"]
                     await self._notify_activity_start(activity)
 
-                if changes["activity_ended"]:
+                elif changes["activity_ended"]:
                     activity = changes["activity_ended"]
-                    await self.virtual_life._notify_activity_end(activity)
+                    # Уведомляем только о важных завершениях
+                    await self._notify_activity_end(activity)
+            # Если нет изменений - ничего не делаем
 
         except Exception as e:
             self.logger.error(f"Ошибка обновления виртуальной жизни: {e}")
 
     async def _notify_activity_start(self, activity: VirtualActivity):
-        """Уведомляет о начале активности с AI-гуманизацией"""
+        """Уведомления о начале активности"""
+        
+        # Проверяем что не уведомляли уже об этой активности
+        if activity.id in self.notified_activities:
+            self.logger.info(f"⏭️ Уведомление о активности {activity.id} уже отправлено, пропускаем")
+            return
+        
+        # Добавляем в список уведомленных
+        self.notified_activities.add(activity.id)
         
         try:
             # Используем AI-гуманизатор для конвертации описания
             if hasattr(self.virtual_life, 'activity_humanizer') and self.virtual_life.activity_humanizer:
                 try:
-                    # Гуманизируем техническое название активности
                     humanized_activity = await self.virtual_life.activity_humanizer.humanize_activity(
                         activity_type=activity.activity_type,
                         start_time=activity.start_time.strftime('%H:%M'),
@@ -1275,33 +1295,16 @@ class RealisticAICompanion:
                     
                     self.logger.info(f"🎭 AI гуманизировал активность: {activity.activity_type} -> {humanized_activity}")
                     
-                    # Также гуманизируем описание длительности
-                    duration_descriptions = {
-                        "personal": "заниматься личными делами",
-                        "work": "работать/учиться", 
-                        "hobby": "заниматься хобби",
-                        "rest": "отдыхать",
-                        "social": "общаться с друзьями",
-                        "cosplay": "работать над костюмом",
-                        "study": "учиться",
-                        "gaming": "играть в игры"
-                    }
-                    
-                    duration_desc = duration_descriptions.get(activity.activity_type, activity.activity_type)
-                    
                     messages = [
                         f"Кстати, я сейчас {humanized_activity}! ✨",
-                        f"Буду {duration_desc} до {activity.end_time.strftime('%H:%M')}",
+                        f"Буду заниматься этим до {activity.end_time.strftime('%H:%M')}",
                         "Но ты всегда можешь мне писать! 💕"
                     ]
                     
                 except Exception as e:
                     self.logger.error(f"Ошибка AI-гуманизации в уведомлении: {e}")
-                    # Fallback на улучшенные статичные описания
                     messages = self._get_fallback_activity_messages(activity)
             else:
-                self.logger.warning("AI-гуманизатор недоступен в уведомлениях активности")
-                # Fallback на улучшенные статичные описания
                 messages = self._get_fallback_activity_messages(activity)
 
             # Отправляем уведомления пользователям
@@ -1310,23 +1313,22 @@ class RealisticAICompanion:
                     self.psychological_core
                 )
 
-                for user_id in self.allowed_users:
-                    try:
-                        await self.send_telegram_messages_with_timing(
-                            chat_id=user_id,
-                            messages=messages,
-                            current_state=current_state,
-                        )
-                    except Exception as e:
-                        self.logger.error(f"Ошибка отправки уведомления активности: {e}")
-                        
+                await self.send_telegram_messages_with_timing(
+                    chat_id=list(self.allowed_users)[0],  # Первый пользователь
+                    messages=messages,
+                    current_state=current_state,
+                )
+                
+                self.logger.info(f"📨 Уведомление отправлено для активности: {activity.description}")
+        
         except Exception as e:
+            # Если ошибка - убираем из списка уведомленных, чтобы попробовать ещё раз
+            self.notified_activities.discard(activity.id)
             self.logger.error(f"Критическая ошибка в _notify_activity_start: {e}")
 
     def _get_fallback_activity_messages(self, activity: VirtualActivity) -> List[str]:
         """Fallback сообщения с улучшенными человеческими описаниями"""
         
-        # Получаем персонажа для персонализации
         character = self.character_loader.get_current_character()
         
         # Человеческие описания активностей
@@ -1340,10 +1342,7 @@ class RealisticAICompanion:
             "study": "изучаю что-то интересное",
             "gaming": "играю в игры",
             "reading": "читаю книгу/мангу",
-            "shopping": "хожу по магазинам",
-            "exercise": "делаю зарядку",
-            "cooking": "готовлю что-то вкусное",
-            "cleaning": "навожу порядок дома"
+            "shopping": "хожу по магазинам"
         }
         
         # Специальные описания для Марин
@@ -1353,94 +1352,56 @@ class RealisticAICompanion:
                 "personal": "занимаюсь косплей-проектами",
                 "rest": "смотрю аниме и расслабляюсь",
                 "social": "болтаю с подругами о косплее",
-                "study": "изучаю новых персонажей для косплея",
-                "shopping": "ищу материалы для костюмов"
+                "study": "изучаю новых персонажей для косплея"
             }
             activity_descriptions.update(marin_descriptions)
         
-        # Длительность активности
-        duration_descriptions = {
-            "personal": "заниматься личными делами",
-            "work": "работать", 
-            "hobby": "заниматься творчеством",
-            "rest": "отдыхать",
-            "social": "общаться",
-            "cosplay": "шить и творить",
-            "study": "учиться",
-            "gaming": "играть",
-            "reading": "читать",
-            "shopping": "по магазинам",
-            "exercise": "тренироваться",
-            "cooking": "готовить",
-            "cleaning": "убираться"
-        }
+        activity_desc = activity_descriptions.get(
+            activity.activity_type, 
+            activity.description or activity.activity_type
+        )
         
-        # Для Марин - специальные длительности
-        if character and 'марин' in character.get('name', '').lower():
-            marin_durations = {
-                "hobby": "работать над косплеем",
-                "personal": "заниматься косплей-проектами", 
-                "rest": "смотреть аниме",
-                "social": "болтать с подругами",
-                "study": "изучать персонажей"
-            }
-            duration_descriptions.update(marin_durations)
-        
-        # Получаем описания
-        activity_desc = activity_descriptions.get(activity.activity_type, activity.description or activity.activity_type)
-        duration_desc = duration_descriptions.get(activity.activity_type, activity.activity_type)
-        
-        # Формируем сообщения
-        messages = [
+        return [
             f"Кстати, я сейчас {activity_desc}! ✨",
-            f"Буду {duration_desc} до {activity.end_time.strftime('%H:%M')}",
+            f"Буду заниматься этим до {activity.end_time.strftime('%H:%M')}",
             "Но ты всегда можешь мне писать! 💕"
         ]
-        
-        return messages
+    
+    def clean_activity_notifications(self):
+        """Очищает список уведомленных активностей (вызывать в полночь)"""
+        self.notified_activities.clear()
+        self.logger.info("🗑️ Список уведомленных активностей очищен")
 
     async def _notify_activity_end(self, activity: VirtualActivity):
-        """Уведомляет о завершении активности с гуманизацией"""
+        """🔧 ОПЦИОНАЛЬНЫЕ уведомления о завершении (отключены по умолчанию)"""
         
-        try:
-            # Гуманизируем завершенную активность
-            if hasattr(self.virtual_life, 'activity_humanizer') and self.virtual_life.activity_humanizer:
-                try:
-                    humanized_activity = await self.virtual_life.activity_humanizer.humanize_activity(
-                        activity_type=activity.activity_type,
-                        start_time=activity.start_time.strftime('%H:%M'),
-                        importance=getattr(activity, 'importance', 5)
+        # ОТКЛЮЧЕНО: Не спамим уведомлениями о каждом завершении
+        # Можно включить только для важных активностей
+        
+        importance = getattr(activity, 'importance', 5)
+        if importance >= 8:  # Только для очень важных активностей
+            try:
+                messages = [
+                    f"Я закончила {activity.description}! ✅",
+                    "Теперь я свободна и готова пообщаться! 😊"
+                ]
+
+                if hasattr(self, "allowed_users") and self.allowed_users:
+                    current_state = await self.optimized_ai.get_simple_mood_calculation(
+                        self.psychological_core
                     )
-                    
-                    messages = [
-                        f"Я закончила {humanized_activity}! ✅",
-                        "Теперь я свободна и готова пообщаться! 😊"
-                    ]
-                    
-                except Exception as e:
-                    self.logger.error(f"Ошибка AI-гуманизации завершения: {e}")
-                    messages = self._get_fallback_completion_messages(activity)
-            else:
-                messages = self._get_fallback_completion_messages(activity)
 
-            # Отправляем уведомления
-            if hasattr(self, "allowed_users") and self.allowed_users:
-                current_state = await self.optimized_ai.get_simple_mood_calculation(
-                    self.psychological_core
-                )
-
-                for user_id in self.allowed_users:
-                    try:
-                        await self.send_telegram_messages_with_timing(
-                            chat_id=user_id,
-                            messages=messages,
-                            current_state=current_state,
-                        )
-                    except Exception as e:
-                        self.logger.error(f"Ошибка отправки уведомления завершения: {e}")
+                    await self.send_telegram_messages_with_timing(
+                        chat_id=list(self.allowed_users)[0],
+                        messages=messages,
+                        current_state=current_state,
+                    )
                         
-        except Exception as e:
-            self.logger.error(f"Критическая ошибка в _notify_activity_end: {e}")
+            except Exception as e:
+                self.logger.error(f"Ошибка уведомления о завершении: {e}")
+        else:
+            # Просто логируем без уведомления
+            self.logger.info(f"🏁 Активность завершена: {activity.description}")
 
     def _get_fallback_completion_messages(self, activity: VirtualActivity) -> List[str]:
         """Fallback сообщения о завершении активности"""
