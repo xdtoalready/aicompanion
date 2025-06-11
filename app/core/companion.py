@@ -1506,7 +1506,7 @@ class RealisticAICompanion:
         self.logger.info("📅 Автоматическое расписание создано на 3 дня")
 
     async def send_initiative_messages(self, current_state: Dict):
-        """Отправка инициативных сообщений с учётом виртуальной жизни"""
+        """Отправка инициативных сообщений с ПРАВИЛЬНЫМ промптом"""
 
         # Получаем контекст из базы данных
         db_context = self.enhanced_memory.get_context_for_response(
@@ -1515,8 +1515,17 @@ class RealisticAICompanion:
         current_state["memory_context"] = db_context
 
         # Добавляем контекст виртуальной жизни
-        virtual_context = self.virtual_life.get_current_context_for_ai()
-        current_state["virtual_life_context"] = virtual_context
+        try:
+            if hasattr(self.virtual_life, 'get_current_context_for_ai_async'):
+                virtual_context = await self.virtual_life.get_current_context_for_ai_async()
+            else:
+                virtual_context = self.virtual_life.get_current_context_for_ai()
+            
+            current_state["virtual_life_context"] = virtual_context
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка получения виртуального контекста для инициативы: {e}")
+            current_state["virtual_life_context"] = "Виртуальная жизнь недоступна"
 
         # Добавляем контекст персонажа
         character_context = self.character_loader.get_character_context_for_ai()
@@ -1524,32 +1533,24 @@ class RealisticAICompanion:
 
         # Получаем текущего персонажа для специальных тем
         character = self.character_loader.get_current_character()
-        initiative_prompt = "Хочу написать пользователю что-то интересное"
+        initiative_topic = "написать что-то интересное"
 
         if character:
-            # Специальные темы для инициатив в зависимости от персонажа
-            initiative_topics = character.get("behavior", {}).get(
-                "initiative_topics", []
-            )
-            if initiative_topics:
-                topic = random.choice(initiative_topics)
-                initiative_prompt = f"Хочу {topic}"
-
             # Для Марин - особые инициативы
             if "марин" in character.get("name", "").lower():
                 special_topics = [
-                    "рассказать о новом косплее который планирую",
-                    "поделиться впечатлениями от аниме которое смотрела",
-                    "предложить вместе поработать над костюмом",
-                    "рассказать о смешном случае на конвенции",
-                    "спросить мнение о новом наряде",
+                    "рассказать о новом косплее",
+                    "поделиться впечатлениями от аниме", 
+                    "предложить совместную активность",
+                    "рассказать о дне",
+                    "поинтересоваться делами"
                 ]
-                initiative_prompt = f"Хочу {random.choice(special_topics)}"
+                initiative_topic = random.choice(special_topics)
 
         try:
-            # Генерируем множественные сообщения
-            messages = await self.optimized_ai.generate_split_response(
-                initiative_prompt, current_state
+            # ИСПОЛЬЗУЕМ НОВЫЙ метод для инициатив!
+            messages = await self.optimized_ai.generate_initiative_response(
+                initiative_topic, current_state
             )
 
             # Доставляем сообщения
@@ -1557,7 +1558,7 @@ class RealisticAICompanion:
                 messages, current_state, message_type="initiative"
             )
 
-            # Сохраняем в БД как инициативный диалог
+            # Сохраняем в БД
             mood_current = current_state.get("dominant_emotion", "calm")
             self.enhanced_memory.add_conversation(
                 "[ИНИЦИАТИВА]", messages, mood_current, mood_current
@@ -1567,7 +1568,7 @@ class RealisticAICompanion:
             self.psychological_core.update_emotional_state("positive_interaction", 0.5)
             self.last_message_time = datetime.now()
 
-            self.logger.info(f"Инициативные сообщения отправлены: {len(messages)} шт.")
+            self.logger.info(f"✅ Инициативные сообщения отправлены: {len(messages)} шт.")
 
         except Exception as e:
             self.logger.error(f"Ошибка генерации инициативы: {e}")
