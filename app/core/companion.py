@@ -335,7 +335,8 @@ class RealisticAICompanion:
             config=config
         )
 
-        self.ai_client = self.api_manager.get_client(APIUsageType.DIALOGUE)
+        # ai_client больше не нужен - используем api_manager напрямую
+        # self.ai_client = self.api_manager.get_client(APIUsageType.DIALOGUE)
 
         # Передаём character_loader в AI клиент
         self.optimized_ai = OptimizedAI(self.api_manager, config, self.character_loader)
@@ -777,7 +778,7 @@ class RealisticAICompanion:
 
             # Обновление эмоциональных меток старых воспоминаний
             await enhance_existing_memories_with_emotions(
-                self.enhanced_memory.db_manager.db_path, self.ai_client, self.config
+                self.enhanced_memory.db_manager.db_path, self.api_manager, self.config
             )
 
         except Exception as e:
@@ -788,7 +789,7 @@ class RealisticAICompanion:
         try:
             # Улучшаем воспоминания без эмоциональных меток
             await enhance_existing_memories_with_emotions(
-                self.enhanced_memory.db_manager.db_path, self.ai_client, self.config
+                self.enhanced_memory.db_manager.db_path, self.api_manager, self.config
             )
         except Exception as e:
             self.logger.error(f"Ошибка анализа эмоций: {e}")
@@ -836,14 +837,12 @@ class RealisticAICompanion:
 
 Ответь кратко, 2-3 предложения на каждый пункт."""
 
-                response = await self.ai_client.chat.completions.create(
-                    model=self.config.get("ai", {}).get("model"),
+                response = await self.api_manager.make_request(
+                    APIUsageType.ANALYTICS,
                     messages=[
                         {"role": "system", "content": analysis_prompt},
                         {"role": "user", "content": pattern_text},
-                    ],
-                    max_tokens=400,
-                    temperature=0.3,
+                    ]
                 )
 
                 analysis = response.choices[0].message.content.strip()
@@ -894,17 +893,15 @@ class RealisticAICompanion:
         Ответь кратко, 2-3 предложения на каждый пункт."""
 
         try:
-            response = await self.ai_client.chat.completions.create(
-                model=self.config.get("ai", {}).get("model"),
+            response = await self.api_manager.make_request(
+                APIUsageType.ANALYTICS,
                 messages=[
                     {"role": "system", "content": analysis_prompt},
                     {
                         "role": "user",
                         "content": f"Воспоминания:\n{consolidated_memories}",
                     },
-                ],
-                max_tokens=300,
-                temperature=0.3,
+                ]
             )
 
             analysis = response.choices[0].message.content.strip()
