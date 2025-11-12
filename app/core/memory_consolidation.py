@@ -601,10 +601,10 @@ async def analyze_memory_emotion(content: str, ai_client, config: Dict) -> Optio
     """Анализирует эмоциональный контекст воспоминания"""
     
     try:
-        from .multi_api_manager import APIUsageType
-        
+        from .gemini_api_manager import APIUsageType
+
         prompt = """Проанализируй эмоциональный контекст этого воспоминания AI-компаньона.
-        
+
 Определи:
 1. Основную эмоцию (joy, love, excitement, surprise, anger, sadness, fear, disgust, calm, boredom)
 2. Интенсивность эмоции от 1 до 10
@@ -612,15 +612,12 @@ async def analyze_memory_emotion(content: str, ai_client, config: Dict) -> Optio
 Ответь в формате: emotion_type:intensity
 Например: joy:8 или sadness:3"""
 
-        response = await api_manager.make_request(
+        response = await ai_client.make_request(
             APIUsageType.ANALYTICS,
-            model=config.get('ai', {}).get('model', 'deepseek/deepseek-chat'),
             messages=[
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": f"Воспоминание: {content}"}
-            ],
-            max_tokens=50,
-            temperature=0.1
+            ]
         )
         
         result = response.choices[0].message.content.strip()
