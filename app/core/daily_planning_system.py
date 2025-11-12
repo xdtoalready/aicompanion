@@ -161,7 +161,7 @@ class DailyPlanningSystem:
             planning_prompt = self._build_planning_prompt(planning_context)
             
             # Делаем запрос к ИИ через PLANNING API
-            from .multi_api_manager import APIUsageType
+            from .gemini_api_manager import APIUsageType
             
             response = await self.api_manager.make_request(
                 APIUsageType.PLANNING,

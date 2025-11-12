@@ -331,7 +331,7 @@ class EmotionalMemoryConsolidator:
         
         try:
             # ИЗМЕНЕНО: Используем analytics API для консолидации
-            from .multi_api_manager import APIUsageType
+            from .gemini_api_manager import APIUsageType
             
             response = await self.api_manager.make_request(
                 APIUsageType.ANALYTICS,  # Используем analytics пул
