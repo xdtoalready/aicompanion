@@ -25,6 +25,7 @@ from .memory import AdvancedMemorySystem
 from .ai_client import OptimizedAI
 from .typing_simulator import TypingSimulator, TypingIndicator
 from .gemini_api_manager import create_gemini_api_manager, APIUsageType
+from .initiative_engine import InitiativeEngine
 
 # Импорт консолидации памяти
 from .memory_consolidation import (
@@ -374,6 +375,10 @@ class RealisticAICompanion:
         self.emotional_memory_consolidator = EmotionalMemoryConsolidator(
             db_path=db_path, api_manager=self.api_manager, config=config
         )
+
+        # Умный движок инициатив
+        self.initiative_engine = InitiativeEngine(config)
+        self.recent_initiative_topics = []  # Последние темы инициатив
 
         self.setup_realistic_scheduler()
 
@@ -994,116 +999,76 @@ class RealisticAICompanion:
             self.logger.error(f"💥 [CONSCIOUSNESS] Ошибка в цикле сознания: {e}", exc_info=True)
 
     async def _should_initiate_realistically(self, current_state: Dict) -> bool:
-        """Решение об инициативе с динамическими интервалами"""
+        """Решение об инициативе через умный движок InitiativeEngine"""
 
-        initiative_desire = current_state.get("initiative_desire", 0)
-        current_hour = datetime.now().hour
-        is_weekend = datetime.now().weekday() >= 5
-        activity_context = current_state.get("activity_context")
+        # Собираем информацию для движка
+        character = self.character_loader.get_current_character()
+        if not character:
+            return False
 
-        self.logger.info(f"🤔 ПРОВЕРКА ИНИЦИАТИВЫ:")
-        self.logger.info(f"   Желание: {initiative_desire}/10")
-        self.logger.info(f"   Час: {current_hour}")
-        self.logger.info(f"   Выходные: {is_weekend}")
-        self.logger.info(f"   Активность: {activity_context}")
+        # Состояние персонажа
+        character_state = {
+            'mood': current_state.get('mood', 'нормальное'),
+            'energy_level': current_state.get('energy', 70),
+            'intimacy': character.get('current_relationship', {}).get('intimacy_level', 5)
+        }
+
+        # Виртуальная жизнь
+        virtual_life_context = await self.virtual_life.get_current_context_for_ai_async()
+        virtual_context_dict = self._parse_virtual_context(virtual_life_context)
+
+        # Отношения
+        relationship = character.get('current_relationship', {})
+
+        # Проверяем через движок
+        should_send, probability, reason = self.initiative_engine.should_send_initiative(
+            character_state=character_state,
+            virtual_life_context=virtual_context_dict,
+            last_message_time=self.last_message_time,
+            relationship=relationship
+        )
+
+        self.logger.info(f"🤔 ПРОВЕРКА ИНИЦИАТИВЫ (новый движок):")
+        self.logger.info(f"   Вероятность: {probability:.2%}")
+        self.logger.info(f"   Причина: {reason}")
+        self.logger.info(f"   Решение: {'✅ ОТПРАВИТЬ' if should_send else '❌ НЕ ОТПРАВЛЯТЬ'}")
         self.logger.info(f"   Сообщений сегодня: {self.daily_message_count}")
 
-        # 1. Ночное время - спим (ослабленное)
-        if current_hour >= 24 or current_hour < 6:
-            self.logger.info("😴 Слишком поздно/рано - не пишем")
-            return False
-
-        # 2. Минимальное желание (сильно ослабляем!)
-        if initiative_desire < 0.5:  # Было 1, стало 0.5!
-            self.logger.info(f"😐 Очень слабое желание: {initiative_desire} < 0.5")
-            return False
-
-        # 3. НОВАЯ СИСТЕМА: Динамические интервалы вместо жёстких 2 часов!
-        dynamic_interval = await self._calculate_dynamic_interval(current_state)
-        
-        if self.last_message_time:
-            hours_since = (datetime.now() - self.last_message_time).total_seconds() / 3600
-            
-            # Теперь интервал зависит от ситуации, а не жёстко 2 часа
-            if hours_since < dynamic_interval:
-                self.logger.info(f"⏰ Динамический интервал: {hours_since:.1f}ч < {dynamic_interval:.1f}ч")
-                
-                # НО! Добавляем шанс "спонтанности" даже при невыполненном интервале
-                spontaneity_chance = await self._calculate_spontaneity_chance(current_state, hours_since, dynamic_interval)
-                
-                if random.random() < spontaneity_chance:
-                    self.logger.info(f"✨ СПОНТАННОСТЬ! Пишем несмотря на интервал (шанс: {spontaneity_chance:.2f})")
-                else:
-                    self.logger.info(f"❌ Спонтанность не сработала (шанс: {spontaneity_chance:.2f})")
-                    return False
-            else:
-                self.logger.info(f"✅ Динамический интервал пройден: {hours_since:.1f}ч >= {dynamic_interval:.1f}ч")
-
-        # 4. Бонусы к желанию (увеличиваем!)
-        bonus_reasons = []
-        original_desire = initiative_desire
-
-        # Часы пик активности (расширяем!)
-        peak_hours = [8, 9, 12, 13, 16, 17, 19, 20, 21, 22]
-        if current_hour in peak_hours:
-            initiative_desire += 2
-            bonus_reasons.append(f"час пик ({current_hour})")
-
-        # Выходные - НАМНОГО активнее
-        if is_weekend:
-            initiative_desire += 3
-            bonus_reasons.append("выходные")
-
-        # Вечернее время
-        if 18 <= current_hour <= 22:
-            initiative_desire += 2
-            bonus_reasons.append("вечер")
-
-        # Учитываем персонажа
-        character = self.character_loader.get_current_character()
-        if character:
-            name = character.get("name", "").lower()
-            if "марин" in name or "китагава" in name:
-                initiative_desire += 2
-                bonus_reasons.append("активный персонаж (Марин)")
-
-        # Бонус от текущего дела
-        activity_bonus = await self._get_activity_initiative_bonus(current_state)
-        if activity_bonus > 0:
-            initiative_desire += activity_bonus
-            bonus_reasons.append(f"интересное дело (+{activity_bonus})")
-
-        if bonus_reasons:
-            self.logger.info(f"✨ Бонусы: {', '.join(bonus_reasons)}")
-            self.logger.info(f"   Желание: {original_desire} → {initiative_desire}")
-
-        # 5. Работа теперь НЕ блокирует, а только уменьшает шанс
-        work_penalty = await self._calculate_work_penalty(current_state)
-        
-        if work_penalty > 0:
-            self.logger.info(f"💼 Рабочий штраф: -{work_penalty:.2f}")
-
-        # 6. НОВАЯ облегченная формула!
-        adjusted_desire = max(0.1, initiative_desire - work_penalty)  # Минимум 0.1
-
-        # Более агрессивная формула для частых сообщений
-        chance = min(0.95, adjusted_desire / 5)  # Было /6, стало /5!
-        random_roll = random.random()
-
-        should_send = random_roll < chance
-
-        self.logger.info(f"🎲 ФИНАЛЬНАЯ ПРОВЕРКА:")
-        self.logger.info(f"   Скорректированное желание: {adjusted_desire:.1f}")
-        self.logger.info(f"   Шанс отправки: {chance:.2f} ({chance*100:.0f}%)")
-        self.logger.info(f"   Случайное число: {random_roll:.2f}")
-        self.logger.info(f"   Результат: {'✅ ОТПРАВЛЯЕМ!' if should_send else '❌ не отправляем'}")
-
-        if should_send:
-            self.logger.info(f"🚀 ИНИЦИАТИВА ОДОБРЕНА! Желание {adjusted_desire:.1f}, бонусы: {bonus_reasons}")
-
         return should_send
-    
-    async def _calculate_dynamic_interval(self, current_state: Dict) -> float:
+
+    def _parse_virtual_context(self, virtual_context_str: str) -> Dict[str, Any]:
+        """Парсит строку виртуального контекста в словарь"""
+        context = {
+            'current_activity': '',
+            'activity_type': '',
+            'status': '',
+            'importance': 5,
+            'flexibility': 5,
+            'next_activity_time': None,
+            'next_importance': 0
+        }
+
+        if not virtual_context_str:
+            context['current_activity'] = 'свободна'
+            return context
+
+        # Простой парсинг строки
+        lines = virtual_context_str.split('\n')
+        for line in lines:
+            if 'ТЕКУЩАЯ АКТИВНОСТЬ:' in line:
+                context['current_activity'] = line.split(':', 1)[1].strip()
+            elif 'Тип:' in line:
+                context['activity_type'] = line.split(':', 1)[1].strip()
+            elif 'Важность:' in line:
+                importance_str = line.split(':', 1)[1].strip()
+                # Извлекаем число из строки типа "7/10"
+                if '/' in importance_str:
+                    context['importance'] = int(importance_str.split('/')[0])
+            elif 'Статус:' in line:
+                context['status'] = line.split(':', 1)[1].strip()
+
+        return context
+
         """Рассчитывает динамический интервал между сообщениями"""
         
         base_interval = 1.0  # Базовый интервал 1 час (было 2!)

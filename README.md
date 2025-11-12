@@ -1,71 +1,152 @@
 # 🤖 AI-Компаньон
 
-**Психологически достоверный виртуальный спутник с динамической личностью**
+[![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
+[![Gemini](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-orange.svg)](https://ai.google.dev)
+[![ChromaDB](https://img.shields.io/badge/Vector%20DB-ChromaDB-green.svg)](https://www.trychroma.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 📁 Структура проекта
+**Психологически достоверный виртуальный спутник с динамической личностью и векторной памятью**
+
+---
+
+## ✨ Возможности
+
+### 🧠 Искусственный интеллект
+- **Google Gemini 2.5 Flash** - мощная и бесплатная AI модель
+- **Адаптивный промпт-инжиниринг** - шаблоны Jinja2 для гибкой настройки
+- **Три режима работы** - диалоги, планирование, аналитика с раздельной оптимизацией
+
+### 👤 Система персонажей
+- **Конфигурация через JSON** - полное описание личности в одном файле
+- **Психологический профиль** - Big Five модель личности
+- **Динамическое настроение** - реакция на события, время, контекст
+- **Ценности и отношения** - глубина привязанности, история общения
+
+### 💾 Векторная память
+- **ChromaDB** - семантический поиск по эмоциональным воспоминаниям
+- **3 коллекции** - разговоры, долгосрочная память, эмоциональные события
+- **Умный контекст** - только релевантные воспоминания в промпте
+- **Fallback к SQL** - гибридный подход при недоступности векторов
+
+### 🌟 Виртуальная жизнь
+- **Планирование дня** - динамическое формирование расписания
+- **Активности** - работа, учёба, хобби, отдых с гуманизацией
+- **Естественные инициативы** - 8-факторная вероятностная модель
+- **Контекстные триггеры** - реакция на события, время, настроение
+
+### 🚀 Инициативы
+- **InitiativeEngine** - умная система инициативных сообщений
+- **8 факторов вероятности** - время, настроение, энергия, активность, близость, время суток, день недели
+- **Контекстные триггеры** - завершённая активность, долгое молчание, особое настроение
+- **Тематический выбор** - темы на основе текущего контекста
+
+### 📱 Интеграции
+- **Telegram Bot** - мультисообщения, реалистичная печать, эмодзи
+- **Web API** (опционально) - REST интерфейс для расширений
+- **Расширяемость** - легко добавить Discord, VK, и другие
+
+---
+
+## 🏗️ Архитектура
 
 ```
-ai-companion/
-├── app/                          # Основной код приложения
-│   ├── core/                     # Ядро системы
-│   │   ├── companion.py          # Основной класс компаньона
-│   │   ├── psychology.py         # Модуль психологии
-│   │   ├── memory.py            # Система памяти
-│   │   └── ai_client.py         # Оптимизированный AI клиент
-│   ├── database/                # База данных
-│   │   └── schema.sql           # SQL схема
-│   └── integrations/            # Интеграции
-│       └── telegram_bot.py      # Telegram бот
-├── config/                      # Конфигурация
-│   ├── config.json             # Основная конфигурация
-│   └── config.example.json     # Пример конфигурации
-├── data/                       # Данные (создается автоматически)
-├── logs/                       # Логи (создается автоматически)
-├── main.py                     # Точка входа
-├── requirements.txt            # Python зависимости
-├── Dockerfile                  # Docker контейнер
-├── docker-compose.yml         # Docker Compose
-└── README.md                   # Этот файл
+┌─────────────────────────────────────────────────────────────┐
+│                      ИНТЕГРАЦИИ                              │
+│    Telegram Bot    │    Web API    │    (future: Discord)    │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+┌──────────────▼──────────────────────────────────────────────┐
+│                   CORE: Companion.py                         │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐   │
+│  │ Psychology  │  │ Relationship │  │  Virtual Life    │   │
+│  │   System    │  │    Tracker   │  │    System        │   │
+│  └─────────────┘  └──────────────┘  └──────────────────┘   │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+┌──────────────▼──────────────────────────────────────────────┐
+│                    AI LAYER                                  │
+│  ┌────────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │ Gemini API     │  │  Initiative  │  │ Prompt         │  │
+│  │ Manager        │  │  Engine      │  │ Manager        │  │
+│  │ (3 use types)  │  │ (8 factors)  │  │ (Jinja2)       │  │
+│  └────────────────┘  └──────────────┘  └────────────────┘  │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+┌──────────────▼──────────────────────────────────────────────┐
+│                   DATABASE LAYER                             │
+│  ┌────────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │ SQLite         │  │  ChromaDB    │  │ Memory Manager │  │
+│  │ (metadata)     │  │  (vectors)   │  │ (hybrid)       │  │
+│  └────────────────┘  └──────────────┘  └────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+### 🛠️ Технологический стек
+
+| Компонент | Технология | Назначение |
+|-----------|-----------|------------|
+| **AI Model** | Google Gemini 2.5 Flash | Генерация ответов, планирование, анализ |
+| **Vector DB** | ChromaDB | Семантический поиск памяти |
+| **SQL DB** | SQLite | Метаданные, история, отношения |
+| **Templates** | Jinja2 | Промпт-инжиниринг |
+| **Messaging** | python-telegram-bot | Telegram интеграция |
+| **Scheduler** | APScheduler | Периодические задачи |
+| **Framework** | asyncio | Асинхронная работа |
+
+---
 
 ## 🚀 Быстрый старт
 
-### 1. Клонирование репозитория
+### 1. Установка
 
 ```bash
-git clone <your-repo-url> ai-companion
-cd ai-companion
+# Клонирование репозитория
+git clone <your-repo-url> aicompanion
+cd aicompanion
+
+# Создание виртуального окружения
+python3.12 -m venv venv
+source venv/bin/activate  # Linux/Mac
+# или venv\Scripts\activate  # Windows
+
+# Установка зависимостей
+pip install -r requirements.txt
 ```
 
-### 2. Настройка конфигурации
+### 2. Конфигурация
 
 ```bash
-# Копируем пример конфигурации
+# Копируем пример
 cp config/config.example.json config/config.json
 
-# Редактируем конфигурацию
+# Редактируем
 nano config/config.json
 ```
 
-**Обязательно заполните:**
-- `ai.openrouter_api_key` - API ключ OpenRouter ([получить здесь](https://openrouter.ai))
-- `integrations.telegram.bot_token` - токен Telegram бота (получить у @BotFather)
-- `integrations.telegram.allowed_users` - массив ID разрешенных пользователей
+**Обязательные параметры:**
 
-### 3. Установка зависимостей
+```json
+{
+  "ai": {
+    "gemini_api_key": "YOUR_GEMINI_API_KEY"  // Получить: https://aistudio.google.com/app/apikey
+  },
+  "integrations": {
+    "telegram": {
+      "bot_token": "YOUR_BOT_TOKEN",         // От @BotFather
+      "allowed_users": [123456789]           // Ваш Telegram ID
+    }
+  }
+}
+```
+
+**Узнать Telegram ID:** напишите боту [@userinfobot](https://t.me/userinfobot)
+
+### 3. Инициализация БД
 
 ```bash
-# Создаем виртуальное окружение
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# или
-venv\Scripts\activate     # Windows
-
-# Устанавливаем зависимости
-pip install -r requirements.txt
-
-# Устанавливаем пакет в режиме разработки (или добавьте путь в PYTHONPATH)
-pip install -e .
+# БД создаются автоматически при первом запуске
+# SQLite: data/companion.db
+# ChromaDB: data/chroma_memory/
 ```
 
 ### 4. Запуск
@@ -74,351 +155,682 @@ pip install -e .
 python main.py
 ```
 
-## 🐳 Развертывание через Docker
-
-### Локальная сборка
-
-```bash
-# Сборка образа
-docker build -t ai-companion .
-
-# Запуск контейнера
-docker run -d \
-  --name ai-companion \
-  -v $(pwd)/config:/home/companion/config:ro \
-  -v $(pwd)/data:/home/companion/data \
-  -v $(pwd)/logs:/home/companion/logs \
-  ai-companion
+При успешном запуске увидите:
+```
+🚀 AI Companion starting...
+✅ Configuration loaded
+✅ Database initialized
+✅ ChromaDB vector memory ready
+✅ Gemini API connected (model: gemini-2.0-flash-exp)
+✅ Telegram bot started (@your_bot_name)
+🎉 AI Companion is running!
 ```
 
+---
+
+## ⚙️ Конфигурация
+
+### AI Settings
+
+```json
+{
+  "ai": {
+    "gemini_api_key": "YOUR_KEY",
+    "model": "gemini-2.0-flash-exp",
+    "max_tokens": 350,
+    "temperature": 0.85,
+    "top_p": 0.95,
+    "top_k": 40,
+    "limits": {
+      "dialogue": {
+        "max_requests_per_hour": 100,
+        "max_tokens_per_day": 50000
+      },
+      "planning": {
+        "max_requests_per_hour": 20,
+        "max_tokens_per_day": 10000
+      },
+      "analytics": {
+        "max_requests_per_hour": 10,
+        "max_tokens_per_day": 5000
+      }
+    }
+  }
+}
+```
+
+### Behavior Settings
+
+```json
+{
+  "behavior": {
+    "max_daily_initiatives": 8,           // Макс инициатив в день
+    "min_hours_between_initiatives": 2,    // Мин часов между инициативами
+    "consciousness_cycle_minutes": 30,     // Цикл "сознания"
+    "sleep_hours": {
+      "start": 23,                         // Начало сна
+      "end": 7                             // Конец сна
+    }
+  }
+}
+```
+
+### Messaging Settings
+
+```json
+{
+  "messaging": {
+    "min_messages": 3,              // Минимум сообщений в ответе
+    "max_messages": 7,              // Максимум сообщений
+    "target_sentences": 3,          // Целевое кол-во предложений
+    "use_emojis": true,            // Использовать эмодзи
+    "max_emojis": 2                // Макс эмодзи на сообщение
+  },
+  "typing": {
+    "mode": "fast",                // lightning | fast | normal | slow
+    "show_typing_indicator": true, // Показывать "печатает..."
+    "natural_pauses": true,        // Естественные паузы
+    "customize_by_emotion": true   // Скорость зависит от эмоций
+  }
+}
+```
+
+### Memory Settings
+
+```json
+{
+  "memory": {
+    "max_working_memories": 50,      // Краткосрочная память
+    "max_daily_memories": 200,       // Дневная память
+    "importance_threshold": 7,       // Порог важности (0-10)
+    "consolidation_hour": 3          // Час консолидации памяти
+  }
+}
+```
+
+---
+
+## 📁 Структура проекта
+
+```
+aicompanion/
+├── app/
+│   ├── core/                           # Ядро системы
+│   │   ├── companion.py                # 🔥 Главный класс компаньона
+│   │   ├── gemini_api_manager.py       # 🔥 Gemini API менеджер
+│   │   ├── initiative_engine.py        # 🔥 Умные инициативы
+│   │   ├── prompt_manager.py           # 🔥 Менеджер промптов (Jinja2)
+│   │   ├── ai_client.py                # AI клиент с кэшированием
+│   │   ├── psychology.py               # Психологическая модель
+│   │   ├── relationship_tracker.py     # Отслеживание отношений
+│   │   ├── daily_planning_system.py    # Планирование дня
+│   │   ├── virtual_life.py             # Виртуальная жизнь
+│   │   └── ai_activity_humanizer.py    # Гуманизация активностей
+│   ├── database/
+│   │   ├── memory_manager_optimized.py # Гибридная память (SQL+Vector)
+│   │   ├── vector_memory_manager.py    # 🔥 ChromaDB менеджер
+│   │   └── schema.sql                  # SQL схема
+│   └── integrations/
+│       └── telegram_bot.py             # Telegram бот
+├── config/
+│   ├── config.json                     # Рабочая конфигурация (не в git)
+│   └── config.example.json             # Шаблон конфигурации
+├── characters/                          # JSON персонажи
+│   └── marin_kitagawa.json
+├── prompts/                             # 🔥 Jinja2 шаблоны промптов
+│   ├── dialogue.jinja2                 # Основной диалог
+│   ├── initiative.jinja2               # Инициативы
+│   ├── planning.jinja2                 # Планирование
+│   ├── humanize_activity.jinja2        # Гуманизация
+│   └── planning_commands.jinja2        # Команды самопланирования
+├── data/                               # Данные (создается автоматически)
+│   ├── companion.db                    # SQLite БД
+│   └── chroma_memory/                  # ChromaDB векторы
+├── logs/                               # Логи
+│   └── companion.log
+├── main.py                             # 🚀 Точка входа
+├── requirements.txt                    # Python зависимости
+├── README.md                           # Этот файл
+└── ROADMAP.md                          # План развития
+
+🔥 - Новые/обновленные файлы (миграция Gemini + ChromaDB)
+```
+
+---
+
+## 📚 Ключевые модули
+
+### `app/core/companion.py`
+
+Главный класс AI-компаньона. Координирует все подсистемы.
+
+**Ключевые методы:**
+- `process_message(user_id, text)` - обработка сообщений
+- `_should_initiate_realistically()` - проверка инициатив через InitiativeEngine
+- `_consciousness_cycle()` - периодический цикл "сознания"
+- `get_current_state()` - получение состояния (настроение, энергия, активность)
+
+**Зависимости:**
+- GeminiAPIManager - для AI запросов
+- InitiativeEngine - для умных инициатив
+- VirtualLife - для активностей
+- MemoryManager - для памяти
+- Psychology - для моделирования личности
+
+---
+
+### `app/core/gemini_api_manager.py`
+
+Менеджер Google Gemini API с тремя режимами работы.
+
+**Типы использования:**
+```python
+class APIUsageType(Enum):
+    DIALOGUE = "dialogue"       # Диалоги + инициативы
+    PLANNING = "planning"       # Планирование дня
+    ANALYTICS = "analytics"     # Консолидация памяти
+```
+
+**Ключевые методы:**
+```python
+async def make_request(
+    usage_type: APIUsageType,
+    messages: List[Dict[str, str]],
+    **kwargs
+) -> Response
+```
+
+**Автоматическая конфигурация:**
+- DIALOGUE: temperature=0.85, max_tokens=400
+- PLANNING: temperature=0.7, max_tokens=500
+- ANALYTICS: temperature=0.6, max_tokens=300
+
+**Статистика:**
+```python
+stats = manager.get_usage_stats()
+# {'total_requests': 150, 'total_tokens': 45000, 'by_type': {...}}
+```
+
+---
+
+### `app/core/initiative_engine.py`
+
+Интеллектуальная система инициативных сообщений.
+
+**8 факторов вероятности:**
+
+| Фактор | Влияние | Множитель |
+|--------|---------|-----------|
+| Время с последнего сообщения | 0-24+ часов | 0.3x - 2.0x |
+| Настроение | radiant/excited → sad/anxious | 0.4x - 1.5x |
+| Энергия | 0-100 | 0.4x - 1.3x |
+| Активность | working → free | 0.3x - 1.5x |
+| Близость | 0-100 | 0.6x - 1.8x |
+| Время суток | ночь → день → вечер | 0.2x - 1.3x |
+| День недели | будни → выходные | 1.0x - 1.2x |
+| Базовая вероятность | - | 0.3 (30%) |
+
+**Контекстные триггеры (+бонус):**
+- Завершена активность: +0.3
+- Скоро важная активность: +0.2
+- Долгое молчание (>6ч): +0.2
+- Особое настроение (excited/anxious): +0.15
+
+**Пример:**
+```python
+should_send, probability, reason = engine.should_send_initiative(
+    character_state={'mood': 'happy', 'energy_level': 80, 'intimacy': 70},
+    virtual_life_context={'activity': 'free', 'time': '18:00'},
+    last_message_time=datetime.now() - timedelta(hours=4),
+    relationship={'intimacy_level': 75}
+)
+# should_send=True, probability=0.68, reason="Хорошее настроение, свободна, вечер"
+```
+
+---
+
+### `app/database/vector_memory_manager.py`
+
+Семантический поиск памяти через ChromaDB.
+
+**Коллекции:**
+- `conversations` - история диалогов
+- `memories` - долгосрочные воспоминания
+- `emotional_memories` - эмоционально значимые события
+
+**Ключевые методы:**
+
+```python
+# Добавление воспоминания
+manager.add_memory(
+    memory_id="mem_123",
+    text="Обсуждали любимые фильмы",
+    importance=8,
+    emotion="happy",
+    tags=["interests", "hobbies"]
+)
+
+# Семантический поиск
+results = manager.search_similar_memories(
+    query="что я люблю смотреть?",
+    limit=5,
+    min_importance=7
+)
+# [
+#   {'text': 'Обсуждали любимые фильмы', 'similarity': 0.87, ...},
+#   {'text': 'Говорили про Netflix сериалы', 'similarity': 0.82, ...}
+# ]
+```
+
+**Преимущества:**
+- Семантический поиск (не по ключевым словам!)
+- Фильтрация по важности, эмоции, тегам
+- Скоринг по релевантности (L2 distance → similarity)
+
+---
+
+### `app/core/prompt_manager.py`
+
+Централизованное управление промптами через Jinja2.
+
+**Шаблоны:**
+
+| Файл | Назначение | Переменные |
+|------|-----------|-----------|
+| `dialogue.jinja2` | Основной диалог | name, personality, mood, memory_context, relationship |
+| `initiative.jinja2` | Инициативы | situation_analysis, topic, time_of_day |
+| `planning.jinja2` | Планирование дня | current_hour, yesterday_summary, goals |
+| `humanize_activity.jinja2` | Гуманизация | activity, mood, energy |
+| `planning_commands.jinja2` | Команды {{plan: ...}} | - |
+
+**Использование:**
+
+```python
+from app.core.prompt_manager import get_prompt_manager
+
+prompt_manager = get_prompt_manager()
+
+prompt = prompt_manager.render('dialogue.jinja2', {
+    'name': 'Алиса',
+    'age': 25,
+    'mood': 'happy',
+    'energy': 80,
+    'memory_context': 'Обсуждали планы на выходные',
+    'relationship': {'intimacy_level': 75}
+})
+```
+
+**Преимущества:**
+- Легко изменять промпты без правки кода
+- Переиспользование через `{% include %}`
+- Условная логика в шаблонах
+- Кэширование скомпилированных шаблонов
+
+---
+
+## 👥 Создание персонажа
+
+### Полный JSON шаблон
+
+Создайте файл `characters/my_character.json`:
+
+```json
+{
+  "id": "alice_01",
+  "name": "Алиса",
+  "age": 25,
+  "gender": "female",
+  "occupation": "дизайнер",
+  "background": "Креативная и жизнерадостная девушка из Москвы",
+
+  "personality_traits": {
+    "extraversion": 7.5,
+    "agreeableness": 8.0,
+    "conscientiousness": 6.5,
+    "neuroticism": 4.0,
+    "openness": 8.5
+  },
+
+  "core_values": {
+    "family_importance": 8,
+    "career_ambition": 7,
+    "creativity_drive": 9,
+    "social_connection": 8,
+    "personal_growth": 9
+  },
+
+  "interests": [
+    "графический дизайн",
+    "современное искусство",
+    "йога",
+    "путешествия",
+    "фотография"
+  ],
+
+  "speech_style": {
+    "formality": "casual",
+    "emoji_usage": "moderate",
+    "sentence_length": "medium",
+    "characteristic_phrases": [
+      "Слушай,",
+      "Кстати,",
+      "Вау!",
+      "Знаешь что?"
+    ]
+  },
+
+  "daily_routine": {
+    "wake_up_time": "08:00",
+    "work_start": "10:00",
+    "work_end": "18:00",
+    "sleep_time": "23:30",
+    "preferred_activities": {
+      "morning": ["yoga", "coffee", "planning"],
+      "afternoon": ["work", "lunch_with_friends"],
+      "evening": ["creative_projects", "social_media", "reading"],
+      "night": ["meditation", "journaling"]
+    }
+  },
+
+  "emotional_patterns": {
+    "default_mood": "happy",
+    "mood_volatility": 0.6,
+    "stress_triggers": ["deadline", "conflict", "uncertainty"],
+    "joy_triggers": ["creative_success", "social_connection", "new_experiences"]
+  }
+}
+```
+
+### Использование в конфиге
+
+```json
+{
+  "character_profile_path": "characters/my_character.json"
+}
+```
+
+Система автоматически загрузит все параметры.
+
+---
+
+## 🔧 Разработка
+
+### Структура кода
+
+```python
+# Пример добавления новой интеграции
+from app.core.companion import AICompanion
+
+class DiscordBot:
+    def __init__(self, config):
+        self.companion = AICompanion(config)
+
+    async def on_message(self, message):
+        response = await self.companion.process_message(
+            user_id=message.author.id,
+            text=message.content
+        )
+        await message.channel.send(response)
+```
+
+### Расширение промптов
+
+Создайте новый шаблон `prompts/custom_mode.jinja2`:
+
+```jinja2
+Ты {{name}}, {{age}} лет.
+
+Сейчас особый режим: {{mode}}.
+
+{% if mode == "creative" %}
+Будь максимально креативной и необычной!
+{% endif %}
+
+Контекст: {{context}}
+```
+
+Используйте:
+
+```python
+prompt = prompt_manager.render('custom_mode.jinja2', {
+    'name': 'Алиса',
+    'age': 25,
+    'mode': 'creative',
+    'context': 'Обсуждаем идеи для стартапа'
+})
+```
+
+### Тестирование
+
+```bash
+# Установка dev-зависимостей
+pip install pytest pytest-asyncio black flake8
+
+# Запуск тестов
+pytest
+
+# Форматирование кода
+black app/
+
+# Линтер
+flake8 app/
+```
+
+---
+
+## 🐳 Docker развертывание
+
 ### Docker Compose (рекомендуется)
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  ai-companion:
+    build: .
+    container_name: ai-companion
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./characters:/app/characters:ro
+    environment:
+      - TZ=Europe/Moscow
+    mem_limit: 512m
+    cpus: 1
+```
 
 ```bash
 # Запуск
 docker-compose up -d
 
-# Просмотр логов
+# Логи
 docker-compose logs -f
 
 # Остановка
 docker-compose down
 ```
 
-## ☁️ Развертывание на сервере
+---
 
-### Подготовка сервера
+## 📊 Мониторинг
+
+### Статистика API
+
+```python
+stats = companion.api_manager.get_usage_stats()
+print(f"Requests: {stats['total_requests']}")
+print(f"Tokens: {stats['total_tokens']}")
+print(f"By type: {stats['by_type']}")
+```
+
+### Статус системы
+
+```python
+state = companion.get_current_state()
+print(f"Mood: {state['mood']}")
+print(f"Energy: {state['energy_level']}")
+print(f"Activity: {state['current_activity']}")
+print(f"Intimacy: {state['intimacy']}")
+```
+
+### Логи
 
 ```bash
-# Обновление системы
-sudo apt update && sudo apt upgrade -y
-
-# Установка Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker $USER
-
-# Установка Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-
-# Перезагрузка для применения настроек группы
-sudo reboot
-```
-
-### Развертывание приложения
-
-```bash
-# Клонирование на сервер
-git clone <your-repo-url> /opt/ai-companion
-cd /opt/ai-companion
-
-# Настройка конфигурации
-sudo cp config/config.example.json config/config.json
-sudo nano config/config.json
-
-# Установка прав
-sudo chown -R $USER:$USER /opt/ai-companion
-
-# Запуск
-docker-compose up -d
-```
-
-### Настройка автозапуска
-
-```bash
-# Создаем systemd сервис
-sudo nano /etc/systemd/system/ai-companion.service
-```
-
-Содержимое файла сервиса:
-
-```ini
-[Unit]
-Description=AI Companion Service
-Requires=docker.service
-After=docker.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/opt/ai-companion
-ExecStart=/usr/local/bin/docker-compose up -d
-ExecStop=/usr/local/bin/docker-compose down
-TimeoutStartSec=0
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-# Активируем сервис
-sudo systemctl enable ai-companion.service
-sudo systemctl start ai-companion.service
-
-# Проверяем статус
-sudo systemctl status ai-companion.service
-```
-
-## ⚙️ Конфигурация
-
-### Основные настройки
-
-```json
-{
-  "ai": {
-    "openrouter_api_key": "YOUR_API_KEY",
-    "model": "deepseek/deepseek-chat",
-    "temperature": 0.8
-  },
-  "character_profile_path": "characters/marin_kitagawa.json",
-  "character": {
-    "name": "Алиса",
-    "personality_traits": {
-      "extraversion": 6.5,
-      "agreeableness": 7.8,
-      "conscientiousness": 6.2,
-      "neuroticism": 4.1,
-      "openness": 8.3
-    }
-  },
-  "behavior": {
-    "max_daily_initiatives": 8,
-    "min_hours_between_initiatives": 2,
-    "consciousness_cycle_minutes": 30
-  }
-}
-```
-
-### Настройка личности
-
-**Черты характера (0-10):**
-- `extraversion` - общительность
-- `agreeableness` - доброжелательность  
-- `conscientiousness` - ответственность
-- `neuroticism` - эмоциональная нестабильность
-- `openness` - открытость опыту
-
-**Поведение:**
-- `max_daily_initiatives` - максимум инициативных сообщений в день
-- `min_hours_between_initiatives` - минимум часов между сообщениями
-- `consciousness_cycle_minutes` - интервал "циклов сознания"
-
-### Профиль персонажа
-
-Полный набор характеристик можно загрузить из файла или прописать в конфигурации.
-
-```json
-{
-  "character_profile_path": "characters/marin_kitagawa.json"
-}
-```
-
-Или использовать встроенные данные:
-
-```json
-{
-  "character_profile": {
-    "id": "my_hero",
-    "name": "Марин Китагава",
-    "age": 20
-  }
-}
-```
-
-## 📱 Telegram интеграция
-
-### Создание бота
-
-1. Напишите @BotFather в Telegram
-2. Выполните команду `/newbot`
-3. Следуйте инструкциям
-4. Скопируйте токен в `config.json`
-
-### Настройка пользователей
-
-```json
-{
-  "integrations": {
-    "telegram": {
-      "enabled": true,
-      "bot_token": "YOUR_BOT_TOKEN",
-      "allowed_users": [123456789, 987654321]
-    }
-  }
-}
-```
-
-**Как узнать свой Telegram ID:**
-1. Напишите боту @userinfobot
-2. Скопируйте ваш ID в массив `allowed_users`
-
-### Команды бота
-
-- `/start` - начать общение
-- `/mood` - текущее настроение AI
-- `/status` - подробный статус
-- `/memories` - что AI помнит о вас
-- `/help` - справка
-
-## 🔧 Мониторинг и обслуживание
-
-### Просмотр логов
-
-```bash
-# Docker Compose
-docker-compose logs -f ai-companion
-
-# Прямые логи
+# Реальное время
 tail -f logs/companion.log
+
+# Только ошибки
+grep ERROR logs/companion.log
+
+# Последние 100 строк
+tail -n 100 logs/companion.log
 ```
 
-### Резервное копирование
+---
 
-```bash
-# Создаем бэкап данных
-tar -czf backup-$(date +%Y%m%d).tar.gz data/ config/
+## 🛡️ Безопасность
 
-# Автоматический бэкап (добавить в crontab)
-0 2 * * * cd /opt/ai-companion && tar -czf /backups/ai-companion-$(date +\%Y\%m\%d).tar.gz data/ config/
-```
+### Рекомендации
 
-### Обновление
+1. **Защита API ключей:**
+   ```bash
+   chmod 600 config/config.json
+   echo "config/config.json" >> .gitignore
+   ```
 
-```bash
-# Останавливаем сервис
-docker-compose down
+2. **Ограничение пользователей Telegram:**
+   ```json
+   {"allowed_users": [123456789]}  // Только ваш ID
+   ```
 
-# Обновляем код
-git pull origin main
+3. **Регулярное резервное копирование:**
+   ```bash
+   # Автоматический бэкап (cron)
+   0 3 * * * tar -czf ~/backups/companion-$(date +\%Y\%m\%d).tar.gz ~/aicompanion/data
+   ```
 
-# Пересобираем и запускаем
-docker-compose up -d --build
-```
+4. **Обновление зависимостей:**
+   ```bash
+   pip install --upgrade -r requirements.txt
+   ```
+
+---
 
 ## 🐛 Решение проблем
 
 ### AI не отвечает
 
 ```bash
-# Проверяем статус контейнера
-docker-compose ps
+# Проверка API ключа
+python -c "import json; print(json.load(open('config/config.json'))['ai']['gemini_api_key'])"
 
-# Смотрим логи на ошибки
-docker-compose logs ai-companion | grep ERROR
+# Тест подключения
+curl https://generativelanguage.googleapis.com/v1/models?key=YOUR_KEY
 
-# Проверяем API ключ
-grep "openrouter_api_key" config/config.json
+# Логи ошибок
+grep "Gemini API error" logs/companion.log
 ```
 
-### Telegram бот не работает
+### ChromaDB не работает
 
 ```bash
-# Проверяем токен
+# Проверка директории
+ls -la data/chroma_memory/
+
+# Пересоздание векторной БД
+rm -rf data/chroma_memory/
+# Перезапустить приложение
+```
+
+### Telegram бот офлайн
+
+```bash
+# Проверка токена
 curl "https://api.telegram.org/bot<YOUR_TOKEN>/getMe"
 
-# Проверяем сетевую доступность
-docker exec ai-companion ping api.telegram.org
+# Проверка сети
+ping api.telegram.org
+
+# Логи бота
+grep "Telegram" logs/companion.log
 ```
 
-### База данных повреждена
+---
 
-```bash
-# Проверяем целостность
-sqlite3 data/companion.db "PRAGMA integrity_check;"
-
-# Восстанавливаем из бэкапа
-docker-compose down
-rm -f data/companion.db
-tar -xzf backup-YYYYMMDD.tar.gz
-docker-compose up -d
-```
-
-## 📊 Производительность
+## 📈 Производительность
 
 ### Системные требования
 
-**Минимальные:**
-- RAM: 256 MB
-- CPU: 1 ядро
-- HDD: 1 GB
+| Конфигурация | RAM | CPU | Диск |
+|--------------|-----|-----|------|
+| Минимальная | 256 MB | 1 core | 1 GB |
+| Рекомендуемая | 512 MB | 2 cores | 2 GB SSD |
+| Оптимальная | 1 GB | 2+ cores | 5 GB SSD |
 
-**Рекомендуемые:**
-- RAM: 512 MB
-- CPU: 2 ядра
-- SSD: 2 GB
+### Оптимизация токенов
 
-### Оптимизация
+- ✅ **Векторный поиск** - только релевантные воспоминания
+- ✅ **Компактные промпты** - 300 строк вместо 800
+- ✅ **Кэширование** - повторные запросы используют кэш
+- ✅ **Умные лимиты** - max_tokens зависит от типа (dialogue/planning/analytics)
 
-```json
-{
-  "behavior": {
-    "consciousness_cycle_minutes": 60,
-    "max_daily_initiatives": 4
-  },
-  "memory": {
-    "max_working_memories": 25,
-    "max_daily_memories": 100
-  }
-}
-```
+**Экономия:** ~60% токенов при сохранении качества!
 
-## 🛡️ Безопасность
+---
 
-### Рекомендации
+## 🎯 Roadmap
 
-1. **Ограничьте доступ к API ключам:**
-   ```bash
-   chmod 600 config/config.json
-   ```
+См. [ROADMAP.md](ROADMAP.md) для подробного плана развития.
 
-2. **Используйте файрвол:**
-   ```bash
-   sudo ufw enable
-   sudo ufw deny 5000  # если не используете веб-интерфейс
-   ```
+**Ближайшие цели:**
+- [ ] Динамическое планирование активностей
+- [ ] Динамика настроения от событий
+- [ ] Web UI для настройки персонажей
+- [ ] Мультиязычность (English support)
+- [ ] Discord интеграция
+- [ ] Voice messages support
 
-3. **Регулярно обновляйтесь:**
-   ```bash
-   # Еженедельно
-   docker-compose pull
-   docker-compose up -d --build
-   ```
+---
 
 ## 📞 Поддержка
 
-При возникновении проблем:
+**Возникли проблемы?**
 
-1. Проверьте логи: `docker-compose logs -f`
+1. Проверьте логи: `tail -f logs/companion.log`
 2. Убедитесь в правильности конфигурации
-3. Проверьте доступность API (OpenRouter, Telegram)
+3. Проверьте доступность API (Gemini, Telegram)
 4. Освободите место на диске
-5. Перезапустите сервис: `docker-compose restart`
+5. Перезапустите: `python main.py`
+
+**Для разработчиков:**
+- Создавайте issue в GitHub
+- Пишите подробное описание проблемы
+- Прикладывайте логи (без API ключей!)
 
 ---
+
+## 📜 Лицензия
+
+MIT License - см. файл [LICENSE](LICENSE)
+
+---
+
+## 🙏 Благодарности
+
+- **Google Gemini** - за мощный и бесплатный AI
+- **ChromaDB** - за векторную базу данных
+- **python-telegram-bot** - за отличную библиотеку
+- **Jinja2** - за гибкие шаблоны
+
+---
+
+<div align="center">
 
 **🎉 Ваш AI-компаньон готов к работе!**
 
 *Создавайте уникальную личность, наслаждайтесь живым общением и развивайте долгосрочные отношения с вашим виртуальным спутником.*
-## 📜 Лицензия
 
-Этот проект распространяется под лицензией MIT. Подробности смотрите в файле [LICENSE](LICENSE).
+</div>
