@@ -59,30 +59,14 @@ class OptimizedAI:
         modified_message = self._enhance_user_message_for_character(user_message, question_type)
         
         try:
-            if self.api_manager:
-                from .multi_api_manager import APIUsageType
-                response = await self.api_manager.make_request(
-                    APIUsageType.DIALOGUE,
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": modified_message}
-                    ],
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    top_p=0.95
-                )
-            else:
-                response = await self.ai_client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": modified_message}
-                    ],
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    top_p=0.95
-                )
+            from .gemini_api_manager import APIUsageType
+            response = await self.api_manager.make_request(
+                APIUsageType.DIALOGUE,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": modified_message}
+                ]
+            )
             
             raw_response = response.choices[0].message.content.strip()
             self.logger.info(f"🤖📅 Сырой ответ получен: {len(raw_response)} символов")
@@ -128,30 +112,14 @@ class OptimizedAI:
         initiative_message = self._enhance_initiative_topic(initiative_topic, character)
         
         try:
-            if self.api_manager:
-                from .multi_api_manager import APIUsageType
-                response = await self.api_manager.make_request(
-                    APIUsageType.DIALOGUE,
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": initiative_system_prompt},
-                        {"role": "user", "content": initiative_message}
-                    ],
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature + 0.1,  # Немного больше креативности
-                    top_p=0.95
-                )
-            else:
-                response = await self.ai_client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": initiative_system_prompt},
-                        {"role": "user", "content": initiative_message}
-                    ],
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature + 0.1,
-                    top_p=0.95
-                )
+            from .gemini_api_manager import APIUsageType
+            response = await self.api_manager.make_request(
+                APIUsageType.DIALOGUE,
+                messages=[
+                    {"role": "system", "content": initiative_system_prompt},
+                    {"role": "user", "content": initiative_message}
+                ]
+            )
             
             raw_response = response.choices[0].message.content.strip()
             messages = self._process_raw_response(raw_response)
@@ -538,31 +506,14 @@ class OptimizedAI:
         
         try:
             # Используем API manager для диалогов
-            if self.api_manager:
-                from .multi_api_manager import APIUsageType
-                response = await self.api_manager.make_request(
-                    APIUsageType.DIALOGUE,
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": modified_message}
-                    ],
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    top_p=0.95
-                )
-            else:
-                # Fallback на старый способ
-                response = await self.ai_client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": modified_message}
-                    ],
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    top_p=0.95
-                )
+            from .gemini_api_manager import APIUsageType
+            response = await self.api_manager.make_request(
+                APIUsageType.DIALOGUE,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": modified_message}
+                ]
+            )
             
             raw_response = response.choices[0].message.content.strip()
             logging.info(f"Получен ответ от {character_name}: {len(raw_response)} символов")

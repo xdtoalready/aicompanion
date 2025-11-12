@@ -52,7 +52,7 @@ class AIActivityHumanizer:
             )
             
             # Запрос к AI (используем analytics API для экономии dialogue лимитов)
-            from .multi_api_manager import APIUsageType
+            from .gemini_api_manager import APIUsageType
             
             response = await self.api_manager.make_request(
                 APIUsageType.ANALYTICS,
