@@ -9,20 +9,34 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
+from .vector_memory_manager import get_vector_memory_manager
 
 class OptimizedMemoryManager:
-    """Оптимизированный менеджер памяти (в 10x быстрее)"""
-    
-    def __init__(self, db_path: str = "data/companion.db"):
+    """Оптимизированный менеджер памяти (в 10x быстрее) + векторный поиск"""
+
+    def __init__(self, db_path: str = "data/companion.db", use_vector_search: bool = True):
         self.db_path = db_path
         self.character_id = 1
         self.logger = logging.getLogger(__name__)
-        
+
         # Кэш в памяти для частых запросов
         self.memory_cache = {}
         self.cache_size = 100
         self.cache_ttl = 300  # 5 минут
-        
+
+        # Векторный поиск
+        self.use_vector_search = use_vector_search
+        if use_vector_search:
+            try:
+                self.vector_memory = get_vector_memory_manager()
+                self.logger.info("✅ Векторный поиск памяти активирован")
+            except Exception as e:
+                self.logger.warning(f"Векторный поиск недоступен: {e}")
+                self.vector_memory = None
+                self.use_vector_search = False
+        else:
+            self.vector_memory = None
+
         self._ensure_optimized_database()
     
     def _ensure_optimized_database(self):
@@ -90,15 +104,53 @@ class OptimizedMemoryManager:
         self.memory_cache[cache_key] = (data, time.time())
     
     def get_relevant_memories_fast(self, context: str, limit: int = 5) -> List[Dict]:
-        """СУПЕР-БЫСТРЫЙ поиск релевантных воспоминаний"""
-        
+        """СУПЕР-БЫСТРЫЙ поиск релевантных воспоминаний (с векторным поиском)"""
+
         cache_key = self._get_cache_key("relevant_memories", (context, limit))
         cached_result = self._get_from_cache(cache_key)
         if cached_result:
             self.logger.debug("🚀 Воспоминания получены из кэша")
             return cached_result
-        
+
         start_time = time.time()
+
+        # Приоритет: векторный поиск (семантический)
+        if self.use_vector_search and self.vector_memory:
+            try:
+                vector_results = self.vector_memory.search_similar_memories(
+                    query=context,
+                    limit=limit,
+                    min_importance=3  # Только важные воспоминания
+                )
+
+                if vector_results:
+                    # Форматируем результаты в стандартный формат
+                    formatted_results = []
+                    for result in vector_results:
+                        metadata = result['metadata']
+                        formatted_results.append({
+                            "type": metadata.get('memory_type', 'fact'),
+                            "content": result['content'],
+                            "importance": metadata.get('importance', 5),
+                            "emotional_intensity": metadata.get('emotional_intensity', 5.0),
+                            "emotion_type": metadata.get('emotion_type', 'calm'),
+                            "access_count": metadata.get('access_count', 0),
+                            "created_at": metadata.get('created_at', ''),
+                            "similarity": result['similarity']  # Дополнительно: релевантность
+                        })
+
+                    # Кэшируем результат
+                    self._set_cache(cache_key, formatted_results)
+
+                    elapsed_time = time.time() - start_time
+                    self.logger.debug(f"🔍 Векторный поиск памяти: {elapsed_time:.3f}с ({len(formatted_results)} результатов)")
+
+                    return formatted_results
+
+            except Exception as e:
+                self.logger.warning(f"Векторный поиск failed, fallback на LIKE: {e}")
+
+        # Fallback: старый LIKE поиск (если векторный недоступен)
         
         try:
             with sqlite3.connect(self.db_path) as conn:
