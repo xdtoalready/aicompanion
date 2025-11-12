@@ -24,7 +24,7 @@ from .psychology import PsychologicalCore
 from .memory import AdvancedMemorySystem
 from .ai_client import OptimizedAI
 from .typing_simulator import TypingSimulator, TypingIndicator
-from .multi_api_manager import create_api_manager, APIUsageType
+from .gemini_api_manager import create_gemini_api_manager, APIUsageType
 
 # Импорт консолидации памяти
 from .memory_consolidation import (
@@ -323,9 +323,9 @@ class RealisticAICompanion:
                         f"Автоматически загружен персонаж: {available_chars[0]['name']}"
                     )
 
-        # AI клиент
-        from .multi_api_manager import create_api_manager, APIUsageType
-        self.api_manager = create_api_manager(config)
+        # AI клиент с Gemini API
+        from .gemini_api_manager import create_gemini_api_manager, APIUsageType
+        self.api_manager = create_gemini_api_manager(config)
 
         self.daily_planner = DailyPlanningSystem(
             db_path=db_path,

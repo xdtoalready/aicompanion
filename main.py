@@ -24,10 +24,10 @@ def load_config(config_path: str = "config/config.json") -> dict:
         
         # Проверяем обязательные поля
         required_fields = [
-            'ai.openrouter_api_key',
+            'ai.gemini_api_key',
             'character.name'
         ]
-        
+
         for field in required_fields:
             keys = field.split('.')
             value = config
@@ -36,11 +36,11 @@ def load_config(config_path: str = "config/config.json") -> dict:
                 if value is None:
                     print(f"❌ Отсутствует обязательное поле в конфигурации: {field}")
                     sys.exit(1)
-        
+
         # Проверяем API ключ
-        if config['ai']['openrouter_api_key'] == 'YOUR_OPENROUTER_API_KEY_HERE':
-            print("❌ Пожалуйста, укажите ваш OpenRouter API ключ в config.json")
-            print("🔑 Получить ключ можно на: https://openrouter.ai")
+        if config['ai']['gemini_api_key'] == 'YOUR_GEMINI_API_KEY':
+            print("❌ Пожалуйста, укажите ваш Gemini API ключ в config.json")
+            print("🔑 Получить ключ можно на: https://aistudio.google.com/app/apikey")
             sys.exit(1)
         
         return config
