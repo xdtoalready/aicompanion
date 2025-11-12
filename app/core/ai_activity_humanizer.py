@@ -5,6 +5,7 @@ import logging
 import json
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from .prompt_manager import get_prompt_manager
 
 class AIActivityHumanizer:
     """Превращает технические активности в живые описания через AI"""
@@ -14,7 +15,10 @@ class AIActivityHumanizer:
         self.character_loader = character_loader
         self.config = config
         self.logger = logging.getLogger(__name__)
-        
+
+        # Prompt Manager
+        self.prompt_manager = get_prompt_manager()
+
         # Кэш для похожих запросов (экономим токены)
         self.humanization_cache = {}
         self.cache_ttl = 3600  # 1 час
@@ -111,47 +115,25 @@ class AIActivityHumanizer:
         
         return context
     
-    def _build_humanization_prompt(self, activity_type: str, start_time: str, 
+    def _build_humanization_prompt(self, activity_type: str, start_time: str,
                                  duration: float, importance: int,
                                  emotional_reason: str, current_mood: str,
                                  character_context: str) -> str:
-        """Строит промпт для гуманизации активности"""
-        
+        """Строит промпт для гуманизации активности (из темплейта)"""
+
         current_hour = datetime.now().hour
-        time_context = f"Сейчас {current_hour}:00"
-        
-        if start_time:
-            time_context += f", активность в {start_time}"
-        
-        prompt = f"""Ты AI-помощник который превращает технические описания активностей в живые, естественные фразы от первого лица.
 
-{character_context}
+        template_context = {
+            'character_context': character_context,
+            'current_hour': current_hour,
+            'start_time': start_time,
+            'duration': duration,
+            'importance': importance,
+            'current_mood': current_mood,
+            'emotional_reason': emotional_reason
+        }
 
-КОНТЕКСТ:
-• {time_context}
-• Длительность: {duration:.1f} часов
-• Важность: {importance}/10
-• Настроение: {current_mood}
-• Причина: {emotional_reason or 'обычная активность'}
-
-ПРАВИЛА ГУМАНИЗАЦИИ:
-1. Пиши от первого лица ("делаю", "занимаюсь", "работаю")
-2. Учитывай характер и интересы персонажа
-3. Добавляй эмоциональную окраску
-4. Используй естественные формулировки
-5. КРАТКО: 3-8 слов максимум
-6. БЕЗ технических терминов
-
-ПРИМЕРЫ ГУМАНИЗАЦИИ:
-• hobby -> "работаю над новым косплеем"
-• work -> "сижу над проектом в офисе"  
-• rest -> "валяюсь с телефоном дома"
-• social -> "болтаю с подругами в кафе"
-• cosplay -> "шью корсет для Шизуку-тян"
-
-Превращай техническое описание в живую фразу, учитывая ВСЕ контексты выше!"""
-
-        return prompt
+        return self.prompt_manager.render('humanize_activity.jinja2', template_context)
     
     def _clean_ai_response(self, response: str) -> str:
         """Очищает ответ AI от лишнего"""
